@@ -241,15 +241,22 @@ class WebSocketServer:
             # Get current conversation_id
             old_conversation_id = self.conversation_ids.get(websocket, "")
 
-            # Handle clear session with periodic full wipe logic
+            # Handle clear session for all repository types
             full_wipe_occurred = False
+            
             if isinstance(self.repo, AutoPersistRepo):
+                # AutoPersist uses periodic full wipe logic
                 full_wipe_occurred = await self.repo.handle_clear_session()
                 if full_wipe_occurred:
                     logger.info(
                         f"Full history wipe occurred on "
                         f"{self.repo.max_sessions}th clear session"
                     )
+            else:
+                # Other repos (like InMemoryRepo) always do full clear
+                await self.repo.handle_clear_session()
+                full_wipe_occurred = True
+                logger.info("Memory cleared: All conversation data removed")
 
             # Only create new conversation_id if full wipe occurred
             # Otherwise keep the same conversation_id to maintain LLM memory
@@ -262,14 +269,12 @@ class WebSocketServer:
                 )
             else:
                 new_conversation_id = old_conversation_id  # Keep same conversation
-                if isinstance(self.repo, AutoPersistRepo):
-                    counter = getattr(self.repo, "_clear_session_counter", "?")
-                    logger.info(
-                        f"UI clear only: Session {old_conversation_id} "
-                        f"(counter: {counter}/{self.repo.max_sessions})"
-                    )
-                else:
-                    logger.info(f"UI clear only: Session {old_conversation_id}")
+                counter = getattr(self.repo, "_clear_session_counter", "?")
+                max_sessions = getattr(self.repo, "max_sessions", "N/A")
+                logger.info(
+                    f"UI clear only: Session {old_conversation_id} "
+                    f"(counter: {counter}/{max_sessions})"
+                )
 
             # Send success response
             await websocket.send_text(
