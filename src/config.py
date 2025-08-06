@@ -132,6 +132,14 @@ class Configuration:
         """
         return self._config.get("chat", {}).get("service", {})
 
+    def get_chat_storage_config(self) -> dict[str, Any]:
+        """Get chat storage configuration from YAML.
+
+        Returns:
+            Chat storage configuration dictionary.
+        """
+        return self._config.get("chat", {}).get("storage", {})
+
     def get_max_tool_hops(self) -> int:
         """Get the maximum number of tool hops allowed.
 

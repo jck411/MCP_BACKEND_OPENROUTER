@@ -17,6 +17,16 @@ chat:
     ping_interval: 20
     ping_timeout: 10
 
+  # Chat Storage Configuration
+  storage:
+    mode: "session_only"  # Options: "session_only", "persistent", "hybrid"
+    default_conversation_strategy: "new_each_session"  # or "resume_last"
+    persistence:
+      enabled: false
+      db_path: "chat_history.db"
+      auto_cleanup_on_restart: true
+      auto_save: false  # For hybrid mode - save important conversations automatically
+
   # Chat Service Configuration
   service:
     # System prompt configuration

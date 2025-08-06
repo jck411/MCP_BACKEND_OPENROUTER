@@ -24,7 +24,7 @@ from pydantic import AnyUrl
 import src.chat_service
 from src.chat_service import ChatService
 from src.config import Configuration
-from src.history.chat_store import SQLiteRepo
+from src.history.chat_store import create_repository
 from src.websocket_server import run_websocket_server
 
 logging.basicConfig(
@@ -667,8 +667,8 @@ async def main() -> None:
     llm_config = config.get_llm_config()
     api_key = config.llm_api_key
 
-    # Create repository for chat history  
-    repo = SQLiteRepo("chat_history.db")
+    # Create repository for chat history using configured storage mode
+    repo = create_repository(config.get_config_dict())
 
     # Now that MCPClient and LLMClient are defined, make them available
     # in the chat_service module's namespace and rebuild ChatServiceConfig
