@@ -3,6 +3,10 @@
 Auto-Persist Chat Repository Implementation
 
 Enhanced SQLite repo with automatic persistence and retention policies.
+
+CONFIG: storage.type = "autopersist" (default)
+PURPOSE: Smart SQLite with auto-cleanup + manual saves
+FEATURES: Background retention, session saving, intelligent cleanup
 """
 from __future__ import annotations
 

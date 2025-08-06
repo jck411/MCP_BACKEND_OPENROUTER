@@ -3,6 +3,10 @@
 SQLite Chat Repository Implementation
 
 High-performance SQLite storage for chat history with full concurrency support.
+
+CONFIG: Not used directly - base class only
+PURPOSE: Foundation for AutoPersistRepo (don't instantiate this directly)
+FEATURES: SQLite ops, async support, JSON serialization, indexing
 """
 from __future__ import annotations
 
@@ -22,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class SQLiteRepo(ChatRepository):
-    """High-performance SQLite storage for chat history."""
+    """Base SQLite storage - don't use directly, use AutoPersistRepo instead."""
 
     def __init__(self, db_path: str = "chat_history.db"):
         self.db_path = db_path

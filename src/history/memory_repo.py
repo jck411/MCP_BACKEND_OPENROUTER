@@ -3,6 +3,10 @@
 In-Memory Chat Repository Implementation
 
 Fast in-memory storage for session-only conversations.
+
+CONFIG: storage.type = "memory"
+PURPOSE: Development/testing - all data lost on restart
+FEATURES: Fastest performance, no persistence, simple cleanup
 """
 from __future__ import annotations
 
@@ -11,7 +15,7 @@ from .repository import ChatRepository, _visible_to_llm
 
 
 class InMemoryRepo(ChatRepository):
-    """Fast in-memory storage for session-only conversations."""
+    """Fast in-memory storage - configure with type='memory'. Data lost on restart."""
 
     def __init__(self):
         self._conversations: dict[str, list[ChatEvent]] = {}
