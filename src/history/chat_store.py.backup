@@ -24,6 +24,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
+import threading
 import uuid
 from datetime import datetime
 from typing import Any, Literal, Protocol
@@ -89,7 +91,7 @@ def _visible_to_llm(ev: ChatEvent) -> bool:
     
     Includes:
     - user_message: Direct user inputs
-    - assistant_message: LLM responses
+    - assistant_message: LLM responses  
     - tool_result: Results from tool executions
     - system_update: Only when explicitly marked as visible_to_model=True
     """
@@ -116,6 +118,136 @@ class ChatRepository(Protocol):
         self, conversation_id: str, user_request_id: str, final_content: str,
         usage: Usage | None = None, model: str | None = None
     ) -> ChatEvent: ...
+
+# ---------- In-memory implementation ----------
+
+class InMemoryRepo(ChatRepository):
+    def __init__(self):
+        self._by_conv: dict[str, list[ChatEvent]] = {}
+        self._seq_counters: dict[str, int] = {}  # Per-conversation sequence counters
+        self._req_ids: dict[str, set[str]] = {}  # Per-conversation fast request_id sets
+        self._req_id_to_event: dict[str, dict[str, ChatEvent]] = {}
+        self._last_assistant_ids: dict[str, dict[str, str]] = {}
+        self._lock = threading.Lock()
+
+    def _get_next_seq(self, conversation_id: str) -> int:
+        """Generate the next sequence number for a conversation."""
+        current = self._seq_counters.get(conversation_id, 0)
+        next_seq = current + 1
+        self._seq_counters[conversation_id] = next_seq
+        return next_seq
+
+    async def add_event(self, event: ChatEvent) -> bool:
+        with self._lock:
+            events = self._by_conv.setdefault(event.conversation_id, [])
+
+            # Check for duplicate by request_id if present
+            request_id = event.extra.get("request_id")
+            if request_id:
+                req_ids = self._req_ids.setdefault(event.conversation_id, set())
+                if request_id in req_ids:
+                    return False  # Duplicate found
+
+            # Assign sequence number
+            event.seq = self._get_next_seq(event.conversation_id)
+            events.append(event)
+
+            # Add request_id to fast lookup structures
+            if request_id:
+                req_ids = self._req_ids.setdefault(event.conversation_id, set())
+                req_ids.add(request_id)
+                req_map = self._req_id_to_event.setdefault(event.conversation_id, {})
+                req_map[request_id] = event
+
+            return True
+
+    async def get_events(
+        self, conversation_id: str, limit: int | None = None
+    ) -> list[ChatEvent]:
+        with self._lock:
+            events = self._by_conv.get(conversation_id, [])
+            return events[-limit:] if limit is not None else list(events)
+
+    async def get_conversation_history(
+        self, conversation_id: str, limit: int | None = None
+    ) -> list[ChatEvent]:
+        with self._lock:
+            events = self._by_conv.get(conversation_id, [])
+            conversation_events = [ev for ev in events if _visible_to_llm(ev)]
+            return conversation_events[-limit:] if limit is not None else conversation_events
+
+    async def list_conversations(self) -> list[str]:
+        with self._lock:
+            return list(self._by_conv.keys())
+
+    async def get_event_by_request_id(
+        self, conversation_id: str, request_id: str
+    ) -> ChatEvent | None:
+        with self._lock:
+            req_map = self._req_id_to_event.get(conversation_id, {})
+            return req_map.get(request_id)
+
+    async def get_last_assistant_reply_id(
+        self, conversation_id: str, user_request_id: str
+    ) -> str | None:
+        with self._lock:
+            conv_cache = self._last_assistant_ids.get(conversation_id, {})
+            return conv_cache.get(user_request_id)
+
+    async def compact_deltas(
+        self, conversation_id: str, user_request_id: str, final_content: str,
+        usage: Usage | None = None, model: str | None = None
+    ) -> ChatEvent:
+        """Compact delta events into a single assistant_message and remove deltas."""
+        with self._lock:
+            events = self._by_conv.get(conversation_id, [])
+
+            # Check if assistant message already exists
+            req_ids = self._req_ids.setdefault(conversation_id, set())
+            assistant_req_id = f"assistant:{user_request_id}"
+            if assistant_req_id in req_ids:
+                for event in events:
+                    if (event.type == "assistant_message" and
+                        event.extra.get("user_request_id") == user_request_id):
+                        return event
+
+            # Find and remove delta events
+            deltas_to_remove = []
+            for i, event in enumerate(events):
+                if (
+                    event.type == "meta"
+                    and event.extra.get("kind") == "assistant_delta"
+                    and event.extra.get("user_request_id") == user_request_id
+                ):
+                    deltas_to_remove.append(i)
+
+            # Remove deltas in reverse order
+            for i in reversed(deltas_to_remove):
+                events.pop(i)
+
+            # Create final assistant message
+            assistant_event = ChatEvent(
+                conversation_id=conversation_id,
+                type="assistant_message",
+                role="assistant",
+                content=final_content,
+                usage=usage,
+                model=model,
+                extra={"user_request_id": user_request_id}
+            )
+            assistant_event.seq = self._get_next_seq(conversation_id)
+            events.append(assistant_event)
+
+            # Add to request_id tracking
+            req_ids.add(assistant_req_id)
+            req_map = self._req_id_to_event.setdefault(conversation_id, {})
+            req_map[assistant_req_id] = assistant_event
+
+            # Cache assistant ID
+            asst_cache = self._last_assistant_ids.setdefault(conversation_id, {})
+            asst_cache[user_request_id] = assistant_event.id
+
+            return assistant_event
 
 # ---------- SQLite implementation ----------
 
@@ -167,20 +299,20 @@ class SQLiteRepo(ChatRepository):
                 
                 # Create indexes
                 await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_conversation
+                    CREATE INDEX IF NOT EXISTS idx_conversation 
                     ON chat_events(conversation_id)
                 """)
                 await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_conversation_seq
+                    CREATE INDEX IF NOT EXISTS idx_conversation_seq 
                     ON chat_events(conversation_id, seq)
                 """)
                 await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_created
+                    CREATE INDEX IF NOT EXISTS idx_created 
                     ON chat_events(created_at)
                 """)
                 await db.execute("""
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_request_id
-                    ON chat_events(conversation_id, request_id)
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_request_id 
+                    ON chat_events(conversation_id, request_id) 
                     WHERE request_id IS NOT NULL
                 """)
                 
@@ -197,14 +329,8 @@ class SQLiteRepo(ChatRepository):
             "schema_version": event.schema_version,
             "type": event.type,
             "role": event.role,
-            "content": (
-                event.content if isinstance(event.content, str) 
-                else json.dumps(event.content)
-            ),
-            "tool_calls": (
-                json.dumps([tc.model_dump() for tc in event.tool_calls]) 
-                if event.tool_calls else None
-            ),
+            "content": event.content if isinstance(event.content, str) else json.dumps(event.content),
+            "tool_calls": json.dumps([tc.model_dump() for tc in event.tool_calls]) if event.tool_calls else None,
             "usage": event.usage.model_dump_json() if event.usage else None,
             "provider": event.provider,
             "model": event.model,
@@ -261,8 +387,7 @@ class SQLiteRepo(ChatRepository):
             request_id = event.extra.get("request_id")
             if request_id:
                 async with db.execute(
-                    ("SELECT 1 FROM chat_events WHERE conversation_id = ? "
-                     "AND request_id = ?"),
+                    "SELECT 1 FROM chat_events WHERE conversation_id = ? AND request_id = ?",
                     (event.conversation_id, request_id)
                 ) as cursor:
                     if await cursor.fetchone():
@@ -270,8 +395,7 @@ class SQLiteRepo(ChatRepository):
 
             # Get next sequence number
             async with db.execute(
-                ("SELECT COALESCE(MAX(seq), 0) + 1 FROM chat_events "
-                 "WHERE conversation_id = ?"),
+                "SELECT COALESCE(MAX(seq), 0) + 1 FROM chat_events WHERE conversation_id = ?",
                 (event.conversation_id,)
             ) as cursor:
                 row = await cursor.fetchone()
@@ -318,8 +442,7 @@ class SQLiteRepo(ChatRepository):
             WHERE conversation_id = ? 
             AND (
                 type IN ('user_message', 'assistant_message', 'tool_result')
-                OR (type = 'system_update' AND 
-                    json_extract(extra, '$.visible_to_model') = true)
+                OR (type = 'system_update' AND json_extract(extra, '$.visible_to_model') = true)
             )
             ORDER BY seq
         """
@@ -339,9 +462,7 @@ class SQLiteRepo(ChatRepository):
         await self._ensure_initialized()
         
         async with aiosqlite.connect(self.db_path) as db:
-            async with db.execute(
-                "SELECT DISTINCT conversation_id FROM chat_events"
-            ) as cursor:
+            async with db.execute("SELECT DISTINCT conversation_id FROM chat_events") as cursor:
                 rows = await cursor.fetchall()
                 return [row[0] for row in rows]
 
@@ -353,8 +474,7 @@ class SQLiteRepo(ChatRepository):
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                ("SELECT * FROM chat_events WHERE conversation_id = ? "
-                 "AND request_id = ?"),
+                "SELECT * FROM chat_events WHERE conversation_id = ? AND request_id = ?",
                 (conversation_id, request_id)
             ) as cursor:
                 row = await cursor.fetchone()
@@ -392,8 +512,7 @@ class SQLiteRepo(ChatRepository):
             assistant_req_id = f"assistant:{user_request_id}"
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                ("SELECT * FROM chat_events WHERE conversation_id = ? "
-                 "AND request_id = ?"),
+                "SELECT * FROM chat_events WHERE conversation_id = ? AND request_id = ?",
                 (conversation_id, assistant_req_id)
             ) as cursor:
                 row = await cursor.fetchone()
@@ -420,16 +539,12 @@ class SQLiteRepo(ChatRepository):
                 content=final_content,
                 usage=usage,
                 model=model,
-                extra={
-                    "user_request_id": user_request_id, 
-                    "request_id": assistant_req_id
-                }
+                extra={"user_request_id": user_request_id, "request_id": assistant_req_id}
             )
 
             # Get sequence number and insert
             async with db.execute(
-                ("SELECT COALESCE(MAX(seq), 0) + 1 FROM chat_events "
-                 "WHERE conversation_id = ?"),
+                "SELECT COALESCE(MAX(seq), 0) + 1 FROM chat_events WHERE conversation_id = ?",
                 (conversation_id,)
             ) as cursor:
                 row = await cursor.fetchone()
