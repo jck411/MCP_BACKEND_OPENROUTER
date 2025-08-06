@@ -19,7 +19,10 @@ chat:
 
   # Chat Storage Configuration
   storage:
-    # Auto-persistence (always on)
+    # Repository type: 'autopersist' (default) or 'memory'
+    type: "autopersist"
+    
+    # Auto-persistence settings (only used when type is 'autopersist')
     persistence:
       db_path: "chat_history.db"
       retention:

@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from .auto_persist_repo import AutoPersistRepo
+from .memory_repo import InMemoryRepo
 from .repository import ChatRepository
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,15 @@ logger = logging.getLogger(__name__)
 
 def create_repository(config: dict[str, Any]) -> ChatRepository:
     """Factory function to create appropriate repository based on config."""
-    # New simplified system always uses auto-persist
-    logger.info("Using auto-persist storage with retention policies")
-    return AutoPersistRepo(config)
+    storage_config = config.get("chat", {}).get("storage", {})
+    repo_type = storage_config.get("type", "autopersist")
+    
+    if repo_type == "memory":
+        logger.info("Using in-memory storage (ephemeral)")
+        return InMemoryRepo()
+    elif repo_type == "autopersist":
+        logger.info("Using auto-persist storage with retention policies")
+        return AutoPersistRepo(config)
+    else:
+        logger.warning(f"Unknown repository type '{repo_type}', defaulting to autopersist")
+        return AutoPersistRepo(config)
