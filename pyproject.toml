@@ -1,0 +1,95 @@
+[project]
+name = "mcp-platform"
+version = "0.1.0"
+description = "Modern MCP Platform with comprehensive protocol support"
+authors = [
+    {name = "Jack", email = "jack@example.com"}
+]
+requires-python = ">=3.13"
+dependencies = [
+    "python-dotenv>=1.1.1", # Latest stable
+    "mcp>=1.12.0",
+    "openai>=1.12.0",
+    "PyYAML>=6.0.1",
+    "websockets>=12.0.0",
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "httpx>=0.26.0",
+    "anyio>=4.2.0",
+    "click>=8.1.7",
+    "fastmcp>=2.10.6",
+    "pymupdf>=1.23.8",
+    "pydantic>=2.5.3",
+    "starlette>=0.34.0",
+    "mcp-logger-utils>=0.2.1",
+    "openpyxl>=3.1.2", # For Excel file support
+    "tiktoken>=0.7.0", # For accurate token counting
+]
+
+[project.scripts]
+mcp-platform = "src.main:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.2",
+    "ruff>=0.2.1",
+    "mypy>=1.8.0",
+    "pyright>=1.1.350",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings  
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "C4",  # flake8-comprehensions
+    "T20", # flake8-print
+    "RET", # flake8-return
+    "SLF", # flake8-self
+    "ARG", # flake8-unused-arguments
+    "ERA", # eradicate commented out code
+    "PL",  # pylint
+    "RUF", # ruff-specific rules
+]
+ignore = [
+    "E203", # whitespace before ':' (conflicts with black)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+disallow_any_generics = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+
+[build-system]
+requires = ["hatchling>=1.21.0"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.1.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
