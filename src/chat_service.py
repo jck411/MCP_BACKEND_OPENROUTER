@@ -21,7 +21,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.config import Configuration
 from src.history.chat_store import ChatEvent, Usage
-from src.history.conversation_utils import build_conversation_with_token_limit
 
 if TYPE_CHECKING:
     from src.tool_schema_manager import ToolSchemaManager
@@ -250,7 +249,6 @@ class ChatService:
             content=user_msg,
             extra={"request_id": request_id},
         )
-        user_ev.compute_and_cache_tokens()
         was_added = await self.repo.add_event(user_ev)
 
         if not was_added:
@@ -312,14 +310,26 @@ class ChatService:
         self, conversation_id: str, user_msg: str
     ) -> list[dict[str, Any]]:
         """Build conversation history from repository."""
-        events = await self.repo.last_n_tokens(conversation_id, self.ctx_window)
-        conv, _ = build_conversation_with_token_limit(
-            self._system_prompt,
-            events,
-            user_msg,
-            self.ctx_window,
-            500  # reserve tokens
-        )
+        events = await self.repo.get_conversation_history(conversation_id, limit=50)
+        
+        # Build conversation with system prompt and recent history
+        conv = [{"role": "system", "content": self._system_prompt}]
+        
+        for event in events:
+            if event.type == "user_message":
+                conv.append({"role": "user", "content": str(event.content or "")})
+            elif event.type == "assistant_message":
+                conv.append({"role": "assistant", "content": str(event.content or "")})
+            elif event.type == "tool_result":
+                if event.extra and "tool_call_id" in event.extra:
+                    conv.append({
+                        "role": "tool",
+                        "tool_call_id": event.extra["tool_call_id"],
+                        "content": str(event.content or "")
+                    })
+        
+        # Add current user message
+        conv.append({"role": "user", "content": user_msg})
         return conv
 
     async def _stream_and_handle_tools(
@@ -729,8 +739,6 @@ class ChatService:
             content=user_msg,
             extra={"request_id": request_id},
         )
-        # Ensure token count is computed
-        user_ev.compute_and_cache_tokens()
         was_added = await self.repo.add_event(user_ev)
 
         if not was_added:
@@ -747,14 +755,7 @@ class ChatService:
             # No assistant response yet, continue with LLM call
 
         # 2) build canonical history from repo
-        events = await self.repo.last_n_tokens(conversation_id, self.ctx_window)
-        conv, _ = build_conversation_with_token_limit(
-            self._system_prompt,
-            events,
-            user_msg,
-            self.ctx_window,
-            500  # reserve tokens
-        )
+        conv = await self._build_conversation_history(conversation_id, user_msg)
 
         # 4) Generate assistant response with usage tracking
         (
@@ -775,8 +776,6 @@ class ChatService:
             model=model,
             extra={"user_request_id": request_id},
         )
-        # Ensure token count is computed
-        assistant_ev.compute_and_cache_tokens()
         await self.repo.add_event(assistant_ev)
 
         return assistant_ev

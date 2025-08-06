@@ -68,3 +68,10 @@ coverage.xml
 *.tmp
 *.temp
 .cache/
+
+# Database files
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+events.jsonl

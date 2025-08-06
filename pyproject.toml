@@ -7,23 +7,18 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-    "python-dotenv>=1.1.1", # Latest stable
+    "python-dotenv>=1.1.1",
     "mcp>=1.12.0",
-    "openai>=1.12.0",
     "PyYAML>=6.0.1",
     "websockets>=12.0.0",
     "fastapi>=0.109.0",
     "uvicorn>=0.27.0",
     "httpx>=0.26.0",
     "anyio>=4.2.0",
-    "click>=8.1.7",
-    "fastmcp>=2.10.6",
-    "pymupdf>=1.23.8",
     "pydantic>=2.5.3",
     "starlette>=0.34.0",
-    "mcp-logger-utils>=0.2.1",
-    "openpyxl>=3.1.2", # For Excel file support
-    "tiktoken>=0.7.0", # For accurate token counting
+    "sqlalchemy>=2.0.0",
+    "aiosqlite>=0.19.0",
 ]
 
 [project.scripts]

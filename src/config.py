@@ -25,7 +25,10 @@ class Configuration:
         """Load configuration from YAML file."""
         config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
         with open(config_path) as file:
-            return yaml.safe_load(file)
+            config = yaml.safe_load(file)
+            if not isinstance(config, dict):
+                raise ValueError("Configuration file must contain a dictionary")
+            return config
 
     @staticmethod
     def load_config(file_path: str) -> dict[str, Any]:
@@ -62,11 +65,7 @@ class Configuration:
         provider_key_map = {
             "openai": "OPENAI_API_KEY",
             "groq": "GROQ_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
             "openrouter": "OPENROUTER_API_KEY",
-            "azure": "AZURE_OPENAI_API_KEY",
-            "gemini": "GEMINI_API_KEY",
-            "mistral": "MISTRAL_API_KEY",
         }
 
         env_key = provider_key_map.get(active_provider)
