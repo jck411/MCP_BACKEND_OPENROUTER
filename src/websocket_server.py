@@ -243,7 +243,7 @@ class WebSocketServer:
 
             # Handle clear session for all repository types
             full_wipe_occurred = False
-            
+
             if isinstance(self.repo, AutoPersistRepo):
                 # AutoPersist uses periodic full wipe logic
                 full_wipe_occurred = await self.repo.handle_clear_session()

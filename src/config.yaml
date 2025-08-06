@@ -20,7 +20,7 @@ chat:
   # Chat Storage Configuration
   storage:
     # Repository type: 'autopersist' (default) or 'memory'
-    type: "memory"
+    type: "auto_persist"
     
     # Auto-persistence settings (only used when type is 'autopersist')
     persistence:
