@@ -311,23 +311,26 @@ class ChatService:
     ) -> list[dict[str, Any]]:
         """Build conversation history from repository."""
         events = await self.repo.get_conversation_history(conversation_id, limit=50)
-        
+
         # Build conversation with system prompt and recent history
         conv = [{"role": "system", "content": self._system_prompt}]
-        
+
         for event in events:
             if event.type == "user_message":
                 conv.append({"role": "user", "content": str(event.content or "")})
             elif event.type == "assistant_message":
                 conv.append({"role": "assistant", "content": str(event.content or "")})
-            elif event.type == "tool_result":
-                if event.extra and "tool_call_id" in event.extra:
-                    conv.append({
-                        "role": "tool",
-                        "tool_call_id": event.extra["tool_call_id"],
-                        "content": str(event.content or "")
-                    })
-        
+            elif (
+                event.type == "tool_result"
+                and event.extra
+                and "tool_call_id" in event.extra
+            ):
+                conv.append({
+                    "role": "tool",
+                    "tool_call_id": event.extra["tool_call_id"],
+                    "content": str(event.content or "")
+                })
+
         # Add current user message
         conv.append({"role": "user", "content": user_msg})
         return conv
