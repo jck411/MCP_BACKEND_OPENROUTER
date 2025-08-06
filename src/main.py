@@ -24,7 +24,7 @@ from pydantic import AnyUrl
 import src.chat_service
 from src.chat_service import ChatService
 from src.config import Configuration
-from src.history.chat_store import create_repository
+from src.history import create_repository
 from src.websocket_server import run_websocket_server
 
 logging.basicConfig(

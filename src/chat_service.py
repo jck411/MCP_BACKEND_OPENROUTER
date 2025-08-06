@@ -20,7 +20,7 @@ from mcp import types
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.config import Configuration
-from src.history.chat_store import ChatEvent, Usage
+from src.history import ChatEvent, Usage
 
 if TYPE_CHECKING:
     from src.tool_schema_manager import ToolSchemaManager

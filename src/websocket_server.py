@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from src.chat_service import ChatService
 from src.config import Configuration
-from src.history.chat_store import ChatRepository
+from src.history import AutoPersistRepo, ChatRepository
 
 # TYPE_CHECKING imports to avoid circular imports
 if TYPE_CHECKING:
@@ -236,42 +236,47 @@ class WebSocketServer:
     ):
         """Handle a clear session request from the frontend."""
         request_id = message_data.get("request_id", str(uuid.uuid4()))
-        
+
         try:
             # Get current conversation_id
             old_conversation_id = self.conversation_ids.get(websocket, "")
-            
+
             # Handle clear session with periodic full wipe logic
-            from src.history.chat_store import AutoPersistRepo
             full_wipe_occurred = False
             if isinstance(self.repo, AutoPersistRepo):
                 full_wipe_occurred = await self.repo.handle_clear_session()
                 if full_wipe_occurred:
-                    logger.info(f"Full history wipe occurred on {self.repo.max_sessions}th clear session")
-            
+                    logger.info(
+                        f"Full history wipe occurred on "
+                        f"{self.repo.max_sessions}th clear session"
+                    )
+
             # Only create new conversation_id if full wipe occurred
             # Otherwise keep the same conversation_id to maintain LLM memory
             if full_wipe_occurred:
                 new_conversation_id = str(uuid.uuid4())
                 self.conversation_ids[websocket] = new_conversation_id
                 logger.info(
-                    f"Full wipe: Session cleared: {old_conversation_id} -> {new_conversation_id}"
+                    f"Full wipe: Session cleared: {old_conversation_id} -> "
+                    f"{new_conversation_id}"
                 )
             else:
                 new_conversation_id = old_conversation_id  # Keep same conversation
                 if isinstance(self.repo, AutoPersistRepo):
+                    counter = getattr(self.repo, "_clear_session_counter", "?")
                     logger.info(
-                        f"UI clear only: Session {old_conversation_id} (counter: {self.repo._clear_session_counter}/{self.repo.max_sessions})"
+                        f"UI clear only: Session {old_conversation_id} "
+                        f"(counter: {counter}/{self.repo.max_sessions})"
                     )
                 else:
                     logger.info(f"UI clear only: Session {old_conversation_id}")
-            
+
             # Send success response
             await websocket.send_text(
                 json.dumps(
                     {
                         "request_id": request_id,
-                        "status": "complete", 
+                        "status": "complete",
                         "chunk": {
                             "type": "session_cleared",
                             "metadata": {
@@ -283,10 +288,12 @@ class WebSocketServer:
                     }
                 )
             )
-            
+
         except Exception as e:
             logger.error(f"Error clearing session: {e}")
-            await self._send_error_response(websocket, request_id, f"Clear session failed: {e}")
+            await self._send_error_response(
+                websocket, request_id, f"Clear session failed: {e}"
+            )
 
     async def _send_error_response(
         self, websocket: WebSocket, request_id: str, error_message: str
@@ -424,28 +431,33 @@ class WebSocketServer:
         try:
             # Get all conversations from the repository
             all_conversations = await self.repo.list_conversations()
-            
+
             if not all_conversations:
                 # No previous conversations, start fresh
                 conversation_id = str(uuid.uuid4())
                 self.conversation_ids[websocket] = conversation_id
                 logger.info(f"Starting new conversation: {conversation_id}")
                 return
-            
+
             # Get the most recent conversation (last one in the list)
             # In SQLite, conversations are ordered by creation time
             recent_conversation_id = all_conversations[-1]
             self.conversation_ids[websocket] = recent_conversation_id
-            
+
             # Load conversation history
-            history = await self.repo.get_conversation_history(recent_conversation_id, limit=50)
-            
+            history = await self.repo.get_conversation_history(
+                recent_conversation_id, limit=50
+            )
+
             if not history:
                 logger.info(f"Resuming empty conversation: {recent_conversation_id}")
                 return
-            
-            logger.info(f"Loading {len(history)} messages from conversation: {recent_conversation_id}")
-            
+
+            logger.info(
+                f"Loading {len(history)} messages from conversation: "
+                f"{recent_conversation_id}"
+            )
+
             # Send history to frontend as a special message
             history_messages = []
             for event in history:
@@ -457,11 +469,11 @@ class WebSocketServer:
                     })
                 elif event.type == "assistant_message":
                     history_messages.append({
-                        "role": "assistant", 
+                        "role": "assistant",
                         "content": str(event.content or ""),
                         "timestamp": event.created_at.isoformat()
                     })
-            
+
             if history_messages:
                 # Send history as a special initialization message
                 await websocket.send_text(
@@ -478,9 +490,11 @@ class WebSocketServer:
                         }
                     })
                 )
-                
-                logger.info(f"Sent conversation history: {len(history_messages)} messages")
-            
+
+                logger.info(
+                    f"Sent conversation history: {len(history_messages)} messages"
+                )
+
         except Exception as e:
             logger.error(f"Error loading previous conversation: {e}")
             # Fall back to new conversation on error
@@ -494,10 +508,10 @@ class WebSocketServer:
             logger.info(f"WebSocket connection attempt from {websocket.client}")
             await websocket.accept()
             self.active_connections.append(websocket)
-            
+
             # Try to resume the most recent conversation
             await self._load_previous_conversation(websocket)
-            
+
             logger.info(
                 f"WebSocket connection established. Total connections: "
                 f"{len(self.active_connections)}"
