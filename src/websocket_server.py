@@ -124,6 +124,8 @@ class WebSocketServer:
                 # Handle message based on action
                 if message_data.get("action") == "chat":
                     await self._handle_chat_message(websocket, message_data)
+                elif message_data.get("action") == "clear_session":
+                    await self._handle_clear_session(websocket, message_data)
                 else:
                     # Unknown message format
                     logger.warning(f"Unknown message format: {message_data}")
@@ -134,7 +136,7 @@ class WebSocketServer:
                                 "chunk": {
                                     "error": (
                                         "Unknown message format. "
-                                        "Expected 'action': 'chat'"
+                                        "Expected 'action': 'chat' or 'clear_session'"
                                     )
                                 },
                             }
@@ -228,6 +230,63 @@ class WebSocketServer:
         except Exception as e:
             logger.error(f"Error processing chat message: {e}")
             await self._send_error_response(websocket, request_id, str(e))
+
+    async def _handle_clear_session(
+        self, websocket: WebSocket, message_data: dict[str, Any]
+    ):
+        """Handle a clear session request from the frontend."""
+        request_id = message_data.get("request_id", str(uuid.uuid4()))
+        
+        try:
+            # Get current conversation_id
+            old_conversation_id = self.conversation_ids.get(websocket, "")
+            
+            # Handle clear session with periodic full wipe logic
+            from src.history.chat_store import AutoPersistRepo
+            full_wipe_occurred = False
+            if isinstance(self.repo, AutoPersistRepo):
+                full_wipe_occurred = await self.repo.handle_clear_session()
+                if full_wipe_occurred:
+                    logger.info(f"Full history wipe occurred on {self.repo.max_sessions}th clear session")
+            
+            # Only create new conversation_id if full wipe occurred
+            # Otherwise keep the same conversation_id to maintain LLM memory
+            if full_wipe_occurred:
+                new_conversation_id = str(uuid.uuid4())
+                self.conversation_ids[websocket] = new_conversation_id
+                logger.info(
+                    f"Full wipe: Session cleared: {old_conversation_id} -> {new_conversation_id}"
+                )
+            else:
+                new_conversation_id = old_conversation_id  # Keep same conversation
+                if isinstance(self.repo, AutoPersistRepo):
+                    logger.info(
+                        f"UI clear only: Session {old_conversation_id} (counter: {self.repo._clear_session_counter}/{self.repo.max_sessions})"
+                    )
+                else:
+                    logger.info(f"UI clear only: Session {old_conversation_id}")
+            
+            # Send success response
+            await websocket.send_text(
+                json.dumps(
+                    {
+                        "request_id": request_id,
+                        "status": "complete", 
+                        "chunk": {
+                            "type": "session_cleared",
+                            "metadata": {
+                                "new_conversation_id": new_conversation_id,
+                                "old_conversation_id": old_conversation_id,
+                                "full_wipe_occurred": full_wipe_occurred
+                            }
+                        }
+                    }
+                )
+            )
+            
+        except Exception as e:
+            logger.error(f"Error clearing session: {e}")
+            await self._send_error_response(websocket, request_id, f"Clear session failed: {e}")
 
     async def _send_error_response(
         self, websocket: WebSocket, request_id: str, error_message: str
@@ -360,14 +419,85 @@ class WebSocketServer:
                 )
             )
 
+    async def _load_previous_conversation(self, websocket: WebSocket):
+        """Load and send previous conversation history to the frontend."""
+        try:
+            # Get all conversations from the repository
+            all_conversations = await self.repo.list_conversations()
+            
+            if not all_conversations:
+                # No previous conversations, start fresh
+                conversation_id = str(uuid.uuid4())
+                self.conversation_ids[websocket] = conversation_id
+                logger.info(f"Starting new conversation: {conversation_id}")
+                return
+            
+            # Get the most recent conversation (last one in the list)
+            # In SQLite, conversations are ordered by creation time
+            recent_conversation_id = all_conversations[-1]
+            self.conversation_ids[websocket] = recent_conversation_id
+            
+            # Load conversation history
+            history = await self.repo.get_conversation_history(recent_conversation_id, limit=50)
+            
+            if not history:
+                logger.info(f"Resuming empty conversation: {recent_conversation_id}")
+                return
+            
+            logger.info(f"Loading {len(history)} messages from conversation: {recent_conversation_id}")
+            
+            # Send history to frontend as a special message
+            history_messages = []
+            for event in history:
+                if event.type == "user_message":
+                    history_messages.append({
+                        "role": "user",
+                        "content": str(event.content or ""),
+                        "timestamp": event.created_at.isoformat()
+                    })
+                elif event.type == "assistant_message":
+                    history_messages.append({
+                        "role": "assistant", 
+                        "content": str(event.content or ""),
+                        "timestamp": event.created_at.isoformat()
+                    })
+            
+            if history_messages:
+                # Send history as a special initialization message
+                await websocket.send_text(
+                    json.dumps({
+                        "request_id": str(uuid.uuid4()),
+                        "status": "init",
+                        "chunk": {
+                            "type": "conversation_history",
+                            "data": history_messages,
+                            "metadata": {
+                                "conversation_id": recent_conversation_id,
+                                "message_count": len(history_messages)
+                            }
+                        }
+                    })
+                )
+                
+                logger.info(f"Sent conversation history: {len(history_messages)} messages")
+            
+        except Exception as e:
+            logger.error(f"Error loading previous conversation: {e}")
+            # Fall back to new conversation on error
+            conversation_id = str(uuid.uuid4())
+            self.conversation_ids[websocket] = conversation_id
+            logger.info(f"Fallback to new conversation: {conversation_id}")
+
     async def _connect_websocket(self, websocket: WebSocket):
-        """Connect a WebSocket."""
+        """Connect a WebSocket and load previous conversation history."""
         try:
             logger.info(f"WebSocket connection attempt from {websocket.client}")
             await websocket.accept()
             self.active_connections.append(websocket)
-            # Initialize conversation id for this connection
-            self.conversation_ids[websocket] = str(uuid.uuid4())
+            
+            # Try to resume the most recent conversation
+            await self._load_previous_conversation(websocket)
+            
             logger.info(
                 f"WebSocket connection established. Total connections: "
                 f"{len(self.active_connections)}"
@@ -394,8 +524,10 @@ class WebSocketServer:
         await self.chat_service.initialize()
 
         # Start server
-        host = self.config.get("websocket", {}).get("host", "localhost")
-        port = self.config.get("websocket", {}).get("port", 8000)
+        chat_config = self.config.get("chat", {})
+        websocket_config = chat_config.get("websocket", {})
+        host = websocket_config.get("host", "localhost")
+        port = websocket_config.get("port", 8000)
 
         logger.info(f"Starting WebSocket server on {host}:{port}")
 
