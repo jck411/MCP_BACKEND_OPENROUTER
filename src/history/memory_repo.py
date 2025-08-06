@@ -114,3 +114,10 @@ class InMemoryRepo(ChatRepository):
 
         await self.add_event(assistant_event)
         return assistant_event
+
+    async def handle_clear_session(self) -> bool:
+        """Clear all conversation data from memory."""
+        self._conversations.clear()
+        self._seq_counters.clear()
+        self._request_cache.clear()
+        return True
