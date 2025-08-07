@@ -474,25 +474,96 @@ class MCPClient:
 
 class LLMClient:
     """
-    Flexible HTTP client for LLM API requests - ready for any parameters and reasoning modes.
+    Event-driven LLM HTTP client that automatically updates when configuration changes.
     
-    This client automatically passes through all configuration parameters to the API,
-    making it compatible with new models and their specific parameters without code changes.
-    Handles reasoning/thinking modes transparently by extracting thinking content when present.
+    This client uses the observer pattern to efficiently update only when the runtime
+    configuration actually changes, eliminating unnecessary polling on every API call.
     """
 
-    def __init__(self, config: dict[str, Any], api_key: str) -> None:
-        self.config: dict[str, Any] = config
-        self.api_key: str = api_key
+    def __init__(self, configuration: Configuration) -> None:
+        self.configuration: Configuration = configuration
+        self._current_config: dict[str, Any] = {}
+        self._current_api_key: str = ""
+        self._current_provider: str = ""
+        self.client: httpx.AsyncClient | None = None
         
-        # Extract provider info for potential provider-specific handling
-        self.provider = self._detect_provider(config.get("base_url", ""))
+        # Initialize with current configuration
+        self._update_client_config()
         
-        self.client: httpx.AsyncClient = httpx.AsyncClient(
-            base_url=config["base_url"],
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=60.0,  # Increased for reasoning models which may take longer
-        )
+        # Subscribe to configuration changes for event-driven updates
+        self.configuration.subscribe_to_changes(self._on_config_change)
+        
+    def _on_config_change(self, new_config: dict[str, Any]) -> None:
+        """Event handler for configuration changes."""
+        try:
+            # Check if LLM configuration actually changed
+            new_llm_config = new_config.get("llm", {})
+            active_provider = new_llm_config.get("active", "openai")
+            provider_config = new_llm_config.get("providers", {}).get(active_provider, {})
+            new_api_key = self.configuration.llm_api_key
+            
+            if provider_config != self._current_config or new_api_key != self._current_api_key:
+                logging.info("LLM configuration changed - updating client")
+                logging.info(f"New active provider: {active_provider}")
+                logging.info(f"New model: {provider_config.get('model', 'unknown')}")
+                
+                # Close existing client
+                if self.client:
+                    asyncio.create_task(self.client.aclose())
+                
+                # Update configuration
+                self._current_config = provider_config
+                self._current_api_key = new_api_key
+                self._current_provider = self._detect_provider(provider_config.get("base_url", ""))
+                
+                # Create new HTTP client
+                self.client = httpx.AsyncClient(
+                    base_url=provider_config["base_url"],
+                    headers={"Authorization": f"Bearer {new_api_key}"},
+                    timeout=60.0
+                )
+                
+        except Exception as e:
+            logging.error(f"Error handling configuration change in LLM client: {e}")
+        
+    def _update_client_config(self) -> None:
+        """Initialize client configuration (called once during __init__)."""
+        try:
+            llm_config = self.configuration.get_llm_config()
+            api_key = self.configuration.llm_api_key
+            
+            self._current_config = llm_config
+            self._current_api_key = api_key
+            self._current_provider = self._detect_provider(llm_config.get("base_url", ""))
+            
+            # Create HTTP client
+            self.client = httpx.AsyncClient(
+                base_url=llm_config["base_url"],
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=60.0
+            )
+            
+            logging.info(f"LLM client initialized with provider: {self._current_provider}")
+            logging.info(f"Model: {llm_config.get('model', 'unknown')}")
+                
+        except Exception as e:
+            logging.error(f"Error initializing LLM client configuration: {e}")
+            raise
+
+    @property
+    def config(self) -> dict[str, Any]:
+        """Get current LLM configuration (cached, no I/O)."""
+        return self._current_config
+        
+    @property
+    def api_key(self) -> str:
+        """Get current API key (cached, no I/O)."""
+        return self._current_api_key
+        
+    @property
+    def provider(self) -> str:
+        """Get current provider (cached, no I/O)."""
+        return self._current_provider
 
     def _detect_provider(self, base_url: str) -> str:
         """Detect provider from base URL for potential provider-specific handling."""
@@ -585,6 +656,14 @@ class LLMClient:
         Get response from LLM API with automatic parameter pass-through and reasoning extraction.
         Ready for any model type including reasoning models like o1, o3, Claude with thinking, etc.
         """
+        if not self.client:
+            raise McpError(
+                error=types.ErrorData(
+                    code=types.INTERNAL_ERROR,
+                    message="LLM client not initialized"
+                )
+            )
+            
         try:
             payload = self._build_payload(messages, tools, stream=False)
 
@@ -650,6 +729,14 @@ class LLMClient:
         Get streaming response with automatic parameter pass-through and reasoning handling.
         Supports reasoning models by buffering thinking content and yielding it separately.
         """
+        if not self.client:
+            raise McpError(
+                error=types.ErrorData(
+                    code=types.INTERNAL_ERROR,
+                    message="LLM client not initialized"
+                )
+            )
+            
         try:
             payload = self._build_payload(messages, tools, stream=True)
 
@@ -808,8 +895,13 @@ class LLMClient:
         return False
 
     async def close(self) -> None:
-        """Close the HTTP client."""
-        await self.client.aclose()
+        """Close the HTTP client and unsubscribe from config changes."""
+        # Unsubscribe from configuration changes
+        self.configuration.unsubscribe_from_changes(self._on_config_change)
+        
+        # Close HTTP client
+        if self.client:
+            await self.client.aclose()
 
     async def __aenter__(self):
         """Async context manager entry."""
@@ -865,8 +957,11 @@ async def main() -> None:
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, signal_handler)
 
-    async with LLMClient(llm_config, api_key) as llm_client:
+    async with LLMClient(config) as llm_client:
         try:
+            # Start configuration file watching for event-driven updates
+            await config.start_watching()
+            
             # Run server with shutdown handling
             server_task = asyncio.create_task(
                 run_websocket_server(
@@ -899,6 +994,8 @@ async def main() -> None:
             logging.error(f"Application error: {e}")
             raise
         finally:
+            # Stop configuration watching
+            await config.stop_watching()
             logging.info("Application shutdown complete")
 
 

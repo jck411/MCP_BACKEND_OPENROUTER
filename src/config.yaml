@@ -42,7 +42,7 @@ chat:
     # System prompt configuration
     system_prompt: |
       You are a helpful assistant with a sense of humor.
-      You have access to to a list of tools, use them when needed and explain why you used them.
+      You have access to to a list of tools like setting your own configuration. 
 
     # Streaming configuration
     streaming:
@@ -76,7 +76,7 @@ llm:
   providers:
     openai:
       base_url: "https://api.openai.com/v1"
-      model: "o3"  # or gpt-4, gpt-4-turbo, etc.
+      model: "gpt-4omini"  # or gpt-4, gpt-4-turbo, etc.
       temperature: 0.7
       max_tokens: 4096
       top_p: 1.0

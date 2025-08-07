@@ -1,0 +1,110 @@
+_runtime_config:
+  default_config_path: config.yaml
+  is_runtime_config: true
+  last_modified: 1754546242.5694163
+  version: 5
+chat:
+  service:
+    logging:
+      llm_replies: true
+      llm_reply_truncate_length: 500
+      result_truncate_length: 200
+      system_prompt: true
+      tool_execution: true
+      tool_results: true
+    max_tool_hops: 15
+    streaming:
+      enabled: true
+    system_prompt: "You are a helpful assistant with a sense of humor.\nYou have access\
+      \ to to a list of tools like setting your own configuration. \n"
+    tool_notifications:
+      enabled: true
+      format: '{icon} Executing tool: {tool_name}'
+      icon: "\U0001F527"
+      show_args: true
+  storage:
+    persistence:
+      db_path: chat_history.db
+      retention:
+        cleanup_interval_minutes: 2
+        max_age_hours: 24
+        max_messages: 1000
+        max_sessions: 2
+    saved_sessions:
+      enabled: true
+      max_saved: 50
+      retention_days: null
+    type: auto_persist
+  websocket:
+    allow_credentials: true
+    allow_origins:
+    - '*'
+    endpoint: /ws/chat
+    host: localhost
+    max_message_size: 16777216
+    ping_interval: 20
+    ping_timeout: 10
+    port: 8000
+llm:
+  active: groq
+  providers:
+    anthropic_thinking:
+      base_url: https://openrouter.ai/api/v1
+      max_tokens: 4096
+      model: anthropic/claude-3-opus
+      show_reasoning: true
+      temperature: 0.7
+      thinking_mode: step_by_step
+    custom_provider:
+      base_url: https://api.example.com/v1
+      custom_param1: value1
+      custom_param2: 42
+      max_tokens: 2048
+      model: custom-model-v2
+      nested_config:
+        sub_param: nested_value
+      temperature: 0.8
+    groq:
+      base_url: https://api.groq.com/openai/v1
+      max_tokens: 4096
+      model: llama-3.3-70b-versatile
+      response_format:
+        type: text
+      temperature: 0.7
+      top_p: 1.0
+    openai:
+      base_url: https://api.openai.com/v1
+      max_tokens: 4096
+      model: gpt-4o-mini
+      temperature: 0.7
+      top_p: 1.0
+    openai_reasoning:
+      base_url: https://api.openai.com/v1
+      max_completion_tokens: 8192
+      model: o1-preview
+    openrouter:
+      base_url: https://openrouter.ai/api/v1
+      max_tokens: 4096
+      model: openai/gpt-4o-mini
+      temperature: 0.7
+      top_p: 1.0
+      transforms:
+      - middle-out
+    openrouter_reasoning:
+      base_url: https://openrouter.ai/api/v1
+      include_thinking: true
+      max_tokens: 8192
+      model: openai/o3-mini
+      reasoning_effort: high
+      temperature: 0.7
+logging:
+  format: '%(asctime)s - %(levelname)s - %(message)s'
+  level: INFO
+mcp:
+  config_file: servers_config.json
+  connection:
+    connection_timeout: 30.0
+    initial_reconnect_delay: 1.0
+    max_reconnect_attempts: 5
+    max_reconnect_delay: 30.0
+    ping_timeout: 10.0

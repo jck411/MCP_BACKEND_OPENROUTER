@@ -2,19 +2,33 @@
 
 import json
 import os
-from typing import Any
+import time
+from typing import Any, Optional, Callable
+import asyncio
+import logging
 
 import yaml
 from dotenv import load_dotenv
 
 
 class Configuration:
-    """Manages configuration and environment variables for the MCP client."""
+    """Event-driven configuration manager with observer pattern."""
 
     def __init__(self) -> None:
         """Initialize configuration from YAML and environment variables."""
         self.load_env()  # Load .env for API keys
-        self._config = self._load_yaml_config()  # Load YAML config
+        self._default_config = self._load_yaml_config()  # Load default YAML config (reference only)
+        self._runtime_config_path = os.path.join(os.path.dirname(__file__), "runtime_config.yaml")
+        self._runtime_config_mtime: Optional[float] = None
+        self._current_config: dict[str, Any] = {}
+        
+        # Event-driven observer pattern
+        self._config_change_callbacks: list[Callable[[dict[str, Any]], None]] = []
+        self._watch_task: Optional[asyncio.Task] = None
+        
+        # Initialize persistent runtime configuration
+        self._initialize_runtime_config()
+        self._reload_config()
 
     @staticmethod
     def load_env() -> None:
@@ -29,6 +43,218 @@ class Configuration:
             if not isinstance(config, dict):
                 raise ValueError("Configuration file must contain a dictionary")
             return config
+
+    def _initialize_runtime_config(self) -> None:
+        """Initialize runtime configuration file if it doesn't exist."""
+        if not os.path.exists(self._runtime_config_path):
+            # Create runtime_config.yaml from defaults on first run
+            initial_config = self._default_config.copy()
+            initial_config['_runtime_config'] = {
+                'last_modified': time.time(),
+                'version': 1,
+                'is_runtime_config': True,
+                'default_config_path': 'config.yaml',
+                'created_from_defaults': True
+            }
+            
+            with open(self._runtime_config_path, 'w') as file:
+                yaml.safe_dump(initial_config, file, default_flow_style=False, indent=2)
+
+    def _load_runtime_config(self) -> dict[str, Any]:
+        """Load runtime configuration from YAML file."""
+        try:
+            with open(self._runtime_config_path) as file:
+                config = yaml.safe_load(file)
+                if not isinstance(config, dict):
+                    # If corrupted, recreate from defaults
+                    self._initialize_runtime_config()
+                    return self._load_runtime_config()
+                return config
+        except (yaml.YAMLError, IOError):
+            # If runtime config is corrupted or unreadable, recreate from defaults
+            self._initialize_runtime_config()
+            return self._load_runtime_config()
+
+    def _deep_merge(self, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+        """Deep merge two dictionaries, with override taking precedence."""
+        result = base.copy()
+        
+        for key, value in override.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = self._deep_merge(result[key], value)
+            else:
+                result[key] = value
+        
+        return result
+
+    def _reload_config(self) -> bool:
+        """Reload configuration from runtime config if it has been modified.
+        
+        Returns:
+            True if config was actually reloaded, False if no changes.
+        """
+        # Check if runtime config file exists and get its modification time
+        current_mtime = None
+        if os.path.exists(self._runtime_config_path):
+            current_mtime = os.path.getmtime(self._runtime_config_path)
+        
+        # If modification time changed or this is the first load, reload config
+        if current_mtime != self._runtime_config_mtime:
+            old_config = self._current_config.copy()
+            self._runtime_config_mtime = current_mtime
+            runtime_config = self._load_runtime_config()
+            
+            # Runtime config IS the current config (with defaults for missing values)
+            # Remove runtime metadata before using as current config
+            self._current_config = {k: v for k, v in runtime_config.items() 
+                                  if not k.startswith('_runtime_config')}
+            
+            # Notify observers if config actually changed (not just first load)
+            if old_config and self._current_config != old_config:
+                self._notify_config_change()
+                
+            return True
+        return False
+
+    def _get_current_config(self) -> dict[str, Any]:
+        """Get current configuration (cached, no file system access)."""
+        return self._current_config
+        
+    def _notify_config_change(self) -> None:
+        """Notify all registered observers of configuration changes."""
+        for callback in self._config_change_callbacks:
+            try:
+                callback(self._current_config.copy())
+            except Exception as e:
+                logging.error(f"Error in config change callback: {e}")
+                
+    def subscribe_to_changes(self, callback: Callable[[dict[str, Any]], None]) -> None:
+        """Subscribe to configuration change events.
+        
+        Args:
+            callback: Function to call when config changes. Receives new config as argument.
+        """
+        if callback not in self._config_change_callbacks:
+            self._config_change_callbacks.append(callback)
+            
+    def unsubscribe_from_changes(self, callback: Callable[[dict[str, Any]], None]) -> None:
+        """Unsubscribe from configuration change events.
+        
+        Args:
+            callback: Function to remove from notifications.
+        """
+        if callback in self._config_change_callbacks:
+            self._config_change_callbacks.remove(callback)
+            
+    async def start_watching(self) -> None:
+        """Start the async file watching task for automatic config updates."""
+        if self._watch_task is not None:
+            return  # Already watching
+            
+        self._watch_task = asyncio.create_task(self._watch_config_file())
+        logging.info("Started watching runtime configuration file for changes")
+        
+    async def stop_watching(self) -> None:
+        """Stop the async file watching task."""
+        if self._watch_task is not None:
+            self._watch_task.cancel()
+            try:
+                await self._watch_task
+            except asyncio.CancelledError:
+                pass
+            self._watch_task = None
+            logging.info("Stopped watching runtime configuration file")
+            
+    async def _watch_config_file(self) -> None:
+        """Async task that watches for config file changes."""
+        while True:
+            try:
+                await asyncio.sleep(1)  # Check every second - still efficient
+                if self._reload_config():
+                    logging.info("Runtime configuration file changed - config reloaded")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logging.error(f"Error watching config file: {e}")
+                await asyncio.sleep(5)  # Back off on errors
+
+    def _get_config_value(self, path: list[str], default=None):
+        """Get a configuration value by path, with fallback to defaults."""
+        # Try to get from current runtime config first
+        current = self._get_current_config()
+        for key in path:
+            if isinstance(current, dict) and key in current:
+                current = current[key]
+            else:
+                # Fall back to default config
+                default_current = self._default_config
+                for default_key in path:
+                    if isinstance(default_current, dict) and default_key in default_current:
+                        default_current = default_current[default_key]
+                    else:
+                        return default
+                return default_current
+        return current
+
+    def reload_runtime_config(self) -> bool:
+        """Manually reload runtime configuration.
+        
+        Returns:
+            True if configuration was reloaded, False if no changes detected.
+        """
+        old_mtime = self._runtime_config_mtime
+        self._reload_config()
+        return old_mtime != self._runtime_config_mtime
+
+    def save_runtime_config(self, config: dict[str, Any]) -> None:
+        """Save configuration to runtime config file.
+        
+        Args:
+            config: Configuration dictionary to save.
+        """
+        # Get current version from existing runtime config
+        current_runtime_config: dict[str, Any] = {}
+        if os.path.exists(self._runtime_config_path):
+            try:
+                with open(self._runtime_config_path) as f:
+                    loaded_config = yaml.safe_load(f)
+                    if isinstance(loaded_config, dict):
+                        current_runtime_config = loaded_config
+            except (yaml.YAMLError, IOError):
+                pass
+        
+        current_version = current_runtime_config.get('_runtime_config', {}).get('version', 0)
+        
+        # Add runtime metadata
+        runtime_config = config.copy()
+        runtime_config['_runtime_config'] = {
+            'last_modified': time.time(),
+            'version': current_version + 1,
+            'is_runtime_config': True,
+            'default_config_path': 'config.yaml'
+        }
+        
+        with open(self._runtime_config_path, 'w') as file:
+            yaml.safe_dump(runtime_config, file, default_flow_style=False, indent=2)
+        
+        # Reload the configuration
+        self._reload_config()
+
+    def get_runtime_metadata(self) -> dict[str, Any]:
+        """Get runtime configuration metadata.
+        
+        Returns:
+            Runtime configuration metadata dictionary.
+        """
+        if os.path.exists(self._runtime_config_path):
+            try:
+                with open(self._runtime_config_path) as f:
+                    loaded_config = yaml.safe_load(f)
+                    if isinstance(loaded_config, dict):
+                        return loaded_config.get('_runtime_config', {})
+            except (yaml.YAMLError, IOError):
+                pass
+        return {}
 
     @staticmethod
     def load_config(file_path: str) -> dict[str, Any]:
@@ -57,8 +283,9 @@ class Configuration:
         Raises:
             ValueError: If the API key is not found in environment variables.
         """
-        # Get active provider
-        llm_config = self._config.get("llm", {})
+        # Get active provider from current config
+        config = self._get_current_config()
+        llm_config = config.get("llm", {})
         active_provider = llm_config.get("active", "openai")
 
         # Map provider names to environment variable names
@@ -89,7 +316,7 @@ class Configuration:
         Returns:
             The complete configuration dictionary.
         """
-        return self._config
+        return self._get_current_config()
 
     def get_llm_config(self) -> dict[str, Any]:
         """Get active LLM provider configuration from YAML.
@@ -97,7 +324,8 @@ class Configuration:
         Returns:
             Active LLM provider configuration dictionary.
         """
-        llm_config = self._config.get("llm", {})
+        config = self._get_current_config()
+        llm_config = config.get("llm", {})
         active_provider = llm_config.get("active", "openai")
         providers = llm_config.get("providers", {})
 
@@ -114,7 +342,8 @@ class Configuration:
         Returns:
             WebSocket configuration dictionary.
         """
-        return self._config.get("chat", {}).get("websocket", {})
+        config = self._get_current_config()
+        return config.get("chat", {}).get("websocket", {})
 
     def get_logging_config(self) -> dict[str, Any]:
         """Get logging configuration from YAML.
@@ -122,7 +351,8 @@ class Configuration:
         Returns:
             Logging configuration dictionary.
         """
-        return self._config.get("logging", {})
+        config = self._get_current_config()
+        return config.get("logging", {})
 
     def get_chat_service_config(self) -> dict[str, Any]:
         """Get chat service configuration from YAML.
@@ -130,7 +360,8 @@ class Configuration:
         Returns:
             Chat service configuration dictionary.
         """
-        return self._config.get("chat", {}).get("service", {})
+        config = self._get_current_config()
+        return config.get("chat", {}).get("service", {})
 
     def get_chat_storage_config(self) -> dict[str, Any]:
         """Get chat storage configuration from YAML.
@@ -138,7 +369,8 @@ class Configuration:
         Returns:
             Chat storage configuration dictionary.
         """
-        return self._config.get("chat", {}).get("storage", {})
+        config = self._get_current_config()
+        return config.get("chat", {}).get("storage", {})
 
     def get_max_tool_hops(self) -> int:
         """Get the maximum number of tool hops allowed.
@@ -161,7 +393,8 @@ class Configuration:
         Returns:
             MCP connection configuration dictionary with validated defaults.
         """
-        mcp_config = self._config.get("mcp", {})
+        config = self._get_current_config()
+        mcp_config = config.get("mcp", {})
         connection_config = mcp_config.get("connection", {})
 
         # Get values with defaults
