@@ -18,7 +18,7 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from src.chat.models import ChatMessage, ToolCallContext, convert_usage
+from src.chat.models import ChatMessage, ToolCallContext
 from src.history import ChatEvent
 
 logger = logging.getLogger(__name__)
@@ -109,7 +109,6 @@ class StreamingHandler:
             conversation_id,
             request_id,
             full_content,
-            usage=convert_usage(None),
             model=self.llm_client.config.get("model", "")
         )
         logger.info("← Repository: delta compaction completed")
@@ -335,7 +334,6 @@ class StreamingHandler:
         """
         reply_data = {
             "message": assistant_msg,
-            "usage": None,
             "model": self.llm_client.config.get("model", "")
         }
         self.log_llm_reply(reply_data, "Streaming initial response")
@@ -375,14 +373,6 @@ class StreamingHandler:
                 func_name = call.get("function", {}).get("name", "unknown")
                 log_parts.append(f"  - Tool {i+1}: {func_name}")
 
-        usage = reply.get("usage", {})
-        if usage:
-            prompt_tokens = usage.get('prompt_tokens', 0)
-            completion_tokens = usage.get('completion_tokens', 0)
-            total_tokens = usage.get('total_tokens', 0)
-            log_parts.append(
-                f"Usage: {prompt_tokens}p + {completion_tokens}c = {total_tokens}t"
-            )
 
         model = reply.get("model", "unknown")
         log_parts.append(f"Model: {model}")

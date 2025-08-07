@@ -10,7 +10,7 @@ FEATURES: Fastest performance, no persistence, simple cleanup
 """
 from __future__ import annotations
 
-from .models import ChatEvent, Usage
+from .models import ChatEvent
 from .repository import ChatRepository, _visible_to_llm
 
 
@@ -83,7 +83,7 @@ class InMemoryRepo(ChatRepository):
 
     async def compact_deltas(
         self, conversation_id: str, user_request_id: str, final_content: str,
-        usage: Usage | None = None, model: str | None = None
+        model: str | None = None
     ) -> ChatEvent:
         """Compact delta events into a single assistant_message and remove deltas."""
         events = self._conversations.get(conversation_id, [])
@@ -108,7 +108,6 @@ class InMemoryRepo(ChatRepository):
             type="assistant_message",
             role="assistant",
             content=final_content,
-            usage=usage,
             model=model,
             extra={
                 "user_request_id": user_request_id,

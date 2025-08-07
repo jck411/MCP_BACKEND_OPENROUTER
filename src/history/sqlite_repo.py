@@ -19,7 +19,7 @@ from typing import Any
 
 import aiosqlite
 
-from .models import ChatEvent, ToolCall, Usage
+from .models import ChatEvent, ToolCall
 from .repository import ChatRepository
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,6 @@ class SQLiteRepo(ChatRepository):
                         role TEXT,
                         content TEXT,
                         tool_calls TEXT,
-                        usage TEXT,
                         provider TEXT,
                         model TEXT,
                         stop_reason TEXT,
@@ -113,7 +112,6 @@ class SQLiteRepo(ChatRepository):
                 json.dumps([tc.model_dump() for tc in event.tool_calls])
                 if event.tool_calls else None
             ),
-            "usage": event.usage.model_dump_json() if event.usage else None,
             "provider": event.provider,
             "model": event.model,
             "stop_reason": event.stop_reason,
@@ -134,9 +132,6 @@ class SQLiteRepo(ChatRepository):
         if row["tool_calls"]:
             tool_calls = [ToolCall(**tc) for tc in json.loads(row["tool_calls"])]
 
-        usage = None
-        if row["usage"]:
-            usage = Usage.model_validate_json(row["usage"])
 
         extra = json.loads(row["extra"]) if row["extra"] else {}
         raw = json.loads(row["raw"]) if row["raw"] else None
@@ -150,7 +145,6 @@ class SQLiteRepo(ChatRepository):
             role=row["role"],
             content=content,
             tool_calls=tool_calls,
-            usage=usage,
             provider=row["provider"],
             model=row["model"],
             stop_reason=row["stop_reason"],
@@ -287,7 +281,7 @@ class SQLiteRepo(ChatRepository):
 
     async def compact_deltas(
         self, conversation_id: str, user_request_id: str, final_content: str,
-        usage: Usage | None = None, model: str | None = None
+        model: str | None = None
     ) -> ChatEvent:
         """Compact delta events into a single assistant_message and remove deltas."""
         await self._ensure_initialized()
@@ -325,7 +319,6 @@ class SQLiteRepo(ChatRepository):
                 type="assistant_message",
                 role="assistant",
                 content=final_content,
-                usage=usage,
                 model=model,
                 extra={
                     "user_request_id": user_request_id,
@@ -353,3 +346,12 @@ class SQLiteRepo(ChatRepository):
             await db.commit()
 
             return assistant_event
+
+    async def handle_clear_session(self) -> bool:
+        """Clear all conversation data from SQLite database."""
+        await self._ensure_initialized()
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM chat_events")
+            await db.commit()
+            return True

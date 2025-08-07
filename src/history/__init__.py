@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from .auto_persist_repo import AutoPersistRepo
 from .factory import create_repository
-from .models import ChatEvent, StorageMode, ToolCall, Usage
+from .models import ChatEvent, StorageMode, ToolCall
 from .repository import ChatRepository
 
 __all__ = [
@@ -17,6 +17,5 @@ __all__ = [
     "ChatRepository",
     "StorageMode",
     "ToolCall",
-    "Usage",
     "create_repository",
 ]

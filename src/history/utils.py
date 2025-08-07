@@ -11,7 +11,7 @@ import logging
 import os
 import uuid
 
-from .models import ChatEvent, ToolCall, Usage
+from .models import ChatEvent, ToolCall
 from .repository import ChatRepository, _visible_to_llm
 from .sqlite_repo import SQLiteRepo
 
@@ -50,7 +50,6 @@ async def demo_basic_storage():
         role="assistant",
         content="Let me check the weather for you.",
         tool_calls=[tool_call],
-        usage=Usage(prompt_tokens=50, completion_tokens=25, total_tokens=75),
         provider="test_provider",
         model="test-model",
         extra={"request_id": "assistant_001", "user_request_id": "user_001"}

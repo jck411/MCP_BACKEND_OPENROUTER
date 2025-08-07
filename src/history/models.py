@@ -39,10 +39,6 @@ class ToolCall(BaseModel):
     arguments: dict[str, Any]
 
 
-class Usage(BaseModel):
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_tokens: int = 0
 
 
 # ---------- Main event model ----------
@@ -64,7 +60,6 @@ class ChatEvent(BaseModel):
     role: Role | None = None
     content: str | list[Part] | None = None
     tool_calls: list[ToolCall] = []
-    usage: Usage | None = None
     provider: str | None = None
     model: str | None = None
     stop_reason: str | None = None

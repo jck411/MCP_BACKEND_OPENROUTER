@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .models import ChatEvent, Usage
+from .models import ChatEvent
 
 # ---------- Utility functions ----------
 
@@ -58,7 +58,7 @@ class ChatRepository(Protocol):
 
     async def compact_deltas(
         self, conversation_id: str, user_request_id: str, final_content: str,
-        usage: Usage | None = None, model: str | None = None
+        model: str | None = None
     ) -> ChatEvent: ...
 
     async def handle_clear_session(self) -> bool: ...

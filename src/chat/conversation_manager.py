@@ -148,7 +148,6 @@ class ConversationManager:
         conversation_id: str, 
         request_id: str,
         content: str, 
-        usage, 
         model: str,
         provider: str = "unknown"
     ) -> ChatEvent:
@@ -161,7 +160,6 @@ class ConversationManager:
             type="assistant_message",
             role="assistant",
             content=content,
-            usage=usage,
             provider=provider,
             model=model,
             extra={"user_request_id": request_id},

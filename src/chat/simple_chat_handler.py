@@ -14,7 +14,6 @@ import json
 import logging
 from typing import Any
 
-from src.chat.models import convert_usage
 from src.history import ChatEvent
 
 logger = logging.getLogger(__name__)
@@ -78,19 +77,17 @@ class SimpleChatHandler:
         # Build conversation history from repository
         conv = await self.conversation_manager.build_conversation_history(conversation_id, user_msg)
 
-        # Generate assistant response with usage tracking
+        # Generate assistant response
         (
             assistant_full_text,
-            total_usage,
             model
         ) = await self.generate_assistant_response(conv, tools_payload)
 
-        # Persist assistant message with usage and reference to user request
+        # Persist assistant message and reference to user request
         assistant_ev = await self.conversation_manager.persist_assistant_message(
             conversation_id=conversation_id,
             request_id=request_id,
             content=assistant_full_text,
-            usage=total_usage,
             model=model,
             provider=self.llm_client.config.get("provider", "unknown")
         )
@@ -100,12 +97,11 @@ class SimpleChatHandler:
 
     async def generate_assistant_response(
         self, conv: list[dict[str, Any]], tools_payload: list[dict[str, Any]]
-    ) -> tuple[str, Any, str]:
+    ) -> tuple[str, str]:
         """Generate assistant response using tools if needed."""
         logger.info("→ LLM: requesting non-streaming response")
 
         assistant_full_text = ""
-        total_usage = convert_usage(None)
         model = ""
 
         reply = await self.llm_client.get_response_with_tools(conv, tools_payload)
@@ -114,12 +110,6 @@ class SimpleChatHandler:
         # Log LLM reply if configured
         self.log_llm_reply(reply, "Initial LLM response")
 
-        # Track usage from this API call
-        if reply.get("usage"):
-            call_usage = convert_usage(reply["usage"])
-            total_usage.prompt_tokens += call_usage.prompt_tokens
-            total_usage.completion_tokens += call_usage.completion_tokens
-            total_usage.total_tokens += call_usage.total_tokens
 
         # Store model from first API call
         model = reply.get("model", "")
@@ -176,12 +166,6 @@ class SimpleChatHandler:
             # Log LLM reply if configured
             self.log_llm_reply(reply, f"Tool call follow-up response (hop {hops + 1})")
 
-            # Track usage from subsequent API calls
-            if reply.get("usage"):
-                call_usage = convert_usage(reply["usage"])
-                total_usage.prompt_tokens += call_usage.prompt_tokens
-                total_usage.completion_tokens += call_usage.completion_tokens
-                total_usage.total_tokens += call_usage.total_tokens
 
             if txt := assistant_msg.get("content"):
                 assistant_full_text += txt
@@ -190,7 +174,7 @@ class SimpleChatHandler:
             logger.info("Completed tool execution iteration %d", hops)
 
         logger.info("← LLM: response generation completed")
-        return assistant_full_text, total_usage, model
+        return assistant_full_text, model
 
     def log_llm_reply(self, reply: dict[str, Any], context: str) -> None:
         """Log LLM reply if configured, including thinking content for reasoning models."""
@@ -227,14 +211,6 @@ class SimpleChatHandler:
                 func_name = call.get("function", {}).get("name", "unknown")
                 log_parts.append(f"  - Tool {i+1}: {func_name}")
 
-        usage = reply.get("usage", {})
-        if usage:
-            prompt_tokens = usage.get('prompt_tokens', 0)
-            completion_tokens = usage.get('completion_tokens', 0)
-            total_tokens = usage.get('total_tokens', 0)
-            log_parts.append(
-                f"Usage: {prompt_tokens}p + {completion_tokens}c = {total_tokens}t"
-            )
 
         model = reply.get("model", "unknown")
         log_parts.append(f"Model: {model}")
