@@ -21,8 +21,7 @@ from mcp import ClientSession, McpError, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 from pydantic import AnyUrl
 
-import src.chat_service
-from src.chat_service import ChatService
+from src.chat import ChatOrchestrator
 from src.config import Configuration
 from src.history import create_repository
 from src.websocket_server import run_websocket_server
@@ -847,10 +846,11 @@ async def main() -> None:
     repo = create_repository(config.get_config_dict())
 
     # Now that MCPClient and LLMClient are defined, make them available
-    # in the chat_service module's namespace and rebuild ChatServiceConfig
-    src.chat_service.MCPClient = MCPClient  # type: ignore[attr-defined]
-    src.chat_service.LLMClient = LLMClient  # type: ignore[attr-defined]
-    ChatService.ChatServiceConfig.model_rebuild()
+    # in the chat orchestrator module's namespace and rebuild config
+    import src.chat.chat_orchestrator
+    src.chat.chat_orchestrator.MCPClient = MCPClient  # type: ignore[attr-defined]
+    src.chat.chat_orchestrator.LLMClient = LLMClient  # type: ignore[attr-defined]
+    ChatOrchestrator.ChatOrchestratorConfig.model_rebuild()
 
     # Setup graceful shutdown handler
     shutdown_event = asyncio.Event()

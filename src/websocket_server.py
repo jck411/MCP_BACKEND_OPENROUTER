@@ -15,7 +15,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ValidationError
 
-from src.chat_service import ChatService
+from src.chat import ChatOrchestrator
 from src.config import Configuration
 from src.history import AutoPersistRepo, ChatRepository
 
@@ -68,14 +68,14 @@ class WebSocketServer:
         repo: ChatRepository,
         configuration: Configuration,
     ):
-        service_config = ChatService.ChatServiceConfig(
+        service_config = ChatOrchestrator.ChatOrchestratorConfig(
             clients=clients,
             llm_client=llm_client,
             config=config,
             repo=repo,
             configuration=configuration,
         )
-        self.chat_service = ChatService(service_config)
+        self.chat_service = ChatOrchestrator(service_config)
         self.repo = repo
         self.config = config
         self.configuration = configuration
