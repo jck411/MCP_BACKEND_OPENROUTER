@@ -908,7 +908,7 @@ class ChatService:
         return assistant_full_text, total_usage, model
 
     def _log_llm_reply(self, reply: dict[str, Any], context: str) -> None:
-        """Log LLM reply if configured."""
+        """Log LLM reply if configured, including thinking content for reasoning models."""
         logging_config = self.chat_conf.get("logging", {})
         if not logging_config.get("llm_replies", False):
             return
@@ -916,13 +916,22 @@ class ChatService:
         message = reply.get("message", {})
         content = message.get("content", "")
         tool_calls = message.get("tool_calls", [])
+        thinking = reply.get("thinking", "")
 
         # Truncate content if configured
         truncate_length = logging_config.get("llm_reply_truncate_length", 500)
         if content and len(content) > truncate_length:
             content = content[:truncate_length] + "..."
 
+        # Truncate thinking content if present
+        if thinking and len(thinking) > truncate_length:
+            thinking = thinking[:truncate_length] + "..."
+
         log_parts = [f"LLM Reply ({context}):"]
+
+        # Log thinking content first for reasoning models
+        if thinking:
+            log_parts.append(f"Thinking: {thinking}")
 
         if content:
             log_parts.append(f"Content: {content}")

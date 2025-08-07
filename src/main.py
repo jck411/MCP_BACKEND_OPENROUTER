@@ -474,45 +474,153 @@ class MCPClient:
 
 
 class LLMClient:
-    """HTTP client for LLM API requests with structured tool call support."""
+    """
+    Flexible HTTP client for LLM API requests - ready for any parameters and reasoning modes.
+    
+    This client automatically passes through all configuration parameters to the API,
+    making it compatible with new models and their specific parameters without code changes.
+    Handles reasoning/thinking modes transparently by extracting thinking content when present.
+    """
 
     def __init__(self, config: dict[str, Any], api_key: str) -> None:
         self.config: dict[str, Any] = config
         self.api_key: str = api_key
+        
+        # Extract provider info for potential provider-specific handling
+        self.provider = self._detect_provider(config.get("base_url", ""))
+        
         self.client: httpx.AsyncClient = httpx.AsyncClient(
             base_url=config["base_url"],
             headers={"Authorization": f"Bearer {api_key}"},
-            timeout=30.0,
+            timeout=60.0,  # Increased for reasoning models which may take longer
         )
+
+    def _detect_provider(self, base_url: str) -> str:
+        """Detect provider from base URL for potential provider-specific handling."""
+        if "openai.com" in base_url:
+            return "openai"
+        elif "groq.com" in base_url:
+            return "groq"
+        elif "openrouter.ai" in base_url:
+            return "openrouter"
+        elif "anthropic.com" in base_url:
+            return "anthropic"
+        else:
+            return "unknown"
+
+    def _build_payload(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None, stream: bool = False) -> dict[str, Any]:
+        """
+        Build API payload by passing through all config parameters.
+        This makes the client ready for any new parameters without code changes.
+        """
+        # Start with required parameters
+        payload = {
+            "model": self.config["model"],
+            "messages": messages,
+        }
+        
+        # Add streaming if requested
+        if stream:
+            payload["stream"] = True
+        
+        # Pass through ALL other parameters from config (except infrastructure ones)
+        excluded_keys = {"base_url", "model"}  # These are handled separately
+        for key, value in self.config.items():
+            if key not in excluded_keys:
+                payload[key] = value
+        
+        # Add tools if provided
+        if tools:
+            payload["tools"] = tools
+            
+        return payload
+
+    def _extract_reasoning_content(self, response_data: dict[str, Any]) -> str | None:
+        """
+        Extract thinking/reasoning content from response if present.
+        Checks multiple common locations where providers might put reasoning content.
+        """
+        reasoning_content = None
+        
+        # Check for reasoning content in various locations
+        # Different providers and models may use different field names
+        possible_reasoning_fields = [
+            "thinking",           # Common field name
+            "reasoning",          # Alternative field name  
+            "thought_process",    # Another alternative
+            "internal_thoughts",  # Anthropic style
+            "chain_of_thought",   # CoT models
+            "rationale"           # Academic models
+        ]
+        
+        # Check top-level response
+        for field in possible_reasoning_fields:
+            if field in response_data:
+                reasoning_content = response_data[field]
+                break
+        
+        # Check within choices[0] if not found at top level
+        if not reasoning_content and "choices" in response_data and response_data["choices"]:
+            choice = response_data["choices"][0]
+            
+            # Check in message
+            message = choice.get("message", {})
+            for field in possible_reasoning_fields:
+                if field in message:
+                    reasoning_content = message[field]
+                    break
+            
+            # Check in choice directly
+            if not reasoning_content:
+                for field in possible_reasoning_fields:
+                    if field in choice:
+                        reasoning_content = choice[field]
+                        break
+        
+        return reasoning_content
 
     async def get_response_with_tools(
         self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
     ) -> dict[str, Any]:
-        """Get response from LLM API with structured tool calls support."""
+        """
+        Get response from LLM API with automatic parameter pass-through and reasoning extraction.
+        Ready for any model type including reasoning models like o1, o3, Claude with thinking, etc.
+        """
         try:
-            payload = {
-                "model": self.config["model"],
-                "messages": messages,
-                "temperature": self.config.get("temperature", 0.7),
-                "max_tokens": self.config.get("max_tokens", 4096),
-                "top_p": self.config.get("top_p", 1.0),
-            }
-
-            if tools:
-                payload["tools"] = tools
+            payload = self._build_payload(messages, tools, stream=False)
 
             response = await self.client.post("/chat/completions", json=payload)
             response.raise_for_status()
             result = response.json()
 
+            # Handle empty choices gracefully
+            if not result.get("choices"):
+                raise McpError(
+                    error=types.ErrorData(
+                        code=types.PARSE_ERROR,
+                        message="No choices in API response",
+                    )
+                )
+
             choice = result["choices"][0]
-            return {
+            
+            # Extract reasoning content if present
+            thinking_content = self._extract_reasoning_content(result)
+            
+            response_dict = {
                 "message": choice["message"],
                 "finish_reason": choice.get("finish_reason"),
                 "index": choice.get("index", 0),
                 "usage": result.get("usage"),
                 "model": result.get("model", self.config["model"]),
             }
+            
+            # Include thinking/reasoning content if found
+            if thinking_content:
+                response_dict["thinking"] = thinking_content
+            
+            return response_dict
+            
         except httpx.HTTPError as e:
             logging.error(f"HTTP error: {e}")
             raise McpError(
@@ -540,20 +648,17 @@ class LLMClient:
     async def get_streaming_response_with_tools(
         self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
     ) -> AsyncGenerator[dict[str, Any]]:
-        """Get streaming response from LLM API with structured tool calls support."""
+        """
+        Get streaming response with automatic parameter pass-through and reasoning handling.
+        Supports reasoning models by buffering thinking content and yielding it separately.
+        """
         try:
-            payload = {
-                "model": self.config["model"],
-                "messages": messages,
-                "temperature": self.config.get("temperature", 0.7),
-                "max_tokens": self.config.get("max_tokens", 4096),
-                "top_p": self.config.get("top_p", 1.0),
-                "stream": True,
-            }
+            payload = self._build_payload(messages, tools, stream=True)
 
-            if tools:
-                payload["tools"] = tools
-
+            # Buffers for reasoning content
+            thinking_buffer = ""
+            thinking_complete = False
+            
             async with self.client.stream(
                 "POST", "/chat/completions", json=payload
             ) as response:
@@ -572,17 +677,9 @@ class LLMClient:
                     )
 
                 content_type = response.headers.get("content-type", "")
-                expected_types = ["text/event-stream", "stream"]
+                expected_types = ["text/event-stream", "text/plain", "application/json", "stream"]
                 if not any(t in content_type for t in expected_types):
-                    raise McpError(
-                        error=types.ErrorData(
-                            code=types.INTERNAL_ERROR,
-                            message=(
-                                f"Expected streaming response, got "
-                                f"content-type: {content_type}"
-                            ),
-                        )
-                    )
+                    logging.warning(f"Unexpected content-type: {content_type}, proceeding anyway")
 
                 chunk_count = 0
                 async for line in response.aiter_lines():
@@ -593,12 +690,45 @@ class LLMClient:
                         data = line[6:]  # Remove "data: " prefix
 
                         if data.strip() == "[DONE]":
+                            # If we have accumulated thinking content, yield it as final chunk
+                            if thinking_buffer and not thinking_complete:
+                                yield {
+                                    "type": "thinking",
+                                    "content": thinking_buffer,
+                                    "complete": True
+                                }
                             break
 
                         try:
                             chunk = json.loads(data)
                             chunk_count += 1
+                            
+                            # Check for reasoning/thinking content in this chunk
+                            thinking_delta = self._extract_thinking_from_chunk(chunk)
+                            if thinking_delta is not None:
+                                thinking_buffer += thinking_delta
+                                # Yield thinking chunk separately
+                                yield {
+                                    "type": "thinking",
+                                    "content": thinking_delta,
+                                    "complete": False
+                                }
+                                continue
+                            
+                            # Check if thinking section just completed
+                            if self._is_thinking_complete(chunk):
+                                thinking_complete = True
+                                if thinking_buffer:
+                                    yield {
+                                        "type": "thinking", 
+                                        "content": "",  # Empty content signals end
+                                        "complete": True,
+                                        "full_thinking": thinking_buffer
+                                    }
+                            
+                            # Yield normal content chunks
                             yield chunk
+                            
                         except json.JSONDecodeError as e:
                             # FAIL FAST: Invalid JSON in stream
                             raise McpError(
@@ -632,6 +762,52 @@ class LLMClient:
                     message=f"LLM streaming API error: {e!s}",
                 )
             ) from e
+
+    def _extract_thinking_from_chunk(self, chunk: dict[str, Any]) -> str | None:
+        """
+        Extract thinking/reasoning content from a streaming chunk.
+        Returns the thinking content if found, None otherwise.
+        """
+        # Check for thinking in various locations within streaming chunk
+        possible_thinking_paths = [
+            ["thinking"],
+            ["reasoning"],
+            ["choices", 0, "delta", "thinking"],
+            ["choices", 0, "delta", "reasoning"],
+            ["choices", 0, "message", "thinking"],
+            ["choices", 0, "message", "reasoning"],
+            ["delta", "thinking"],
+            ["delta", "reasoning"]
+        ]
+        
+        for path in possible_thinking_paths:
+            current = chunk
+            try:
+                for key in path:
+                    current = current[key]
+                if isinstance(current, str):
+                    return current
+            except (KeyError, TypeError, IndexError):
+                continue
+                
+        return None
+
+    def _is_thinking_complete(self, chunk: dict[str, Any]) -> bool:
+        """
+        Check if the thinking section has completed in this chunk.
+        Different providers may signal this differently.
+        """
+        # Check for explicit thinking completion signals
+        if chunk.get("thinking_complete"):
+            return True
+            
+        # Check if we're starting to get regular content (thinking usually comes first)
+        if "choices" in chunk and chunk["choices"]:
+            choice = chunk["choices"][0]
+            if "delta" in choice and "content" in choice["delta"]:
+                return True
+                
+        return False
 
     async def close(self) -> None:
         """Close the HTTP client."""
