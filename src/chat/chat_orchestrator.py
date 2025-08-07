@@ -120,13 +120,13 @@ class ChatOrchestrator:
 
             # Initialize resource loader and get system prompt
             logger.info("→ Orchestrator: initializing resource loader")
-            self.resource_loader = ResourceLoader(self.tool_mgr, self.chat_conf)
+            self.resource_loader = ResourceLoader(self.tool_mgr, self.configuration)
             system_prompt = await self.resource_loader.initialize()
             logger.info("← Orchestrator: resource loader ready")
 
             # Initialize conversation manager
             logger.info("→ Orchestrator: initializing conversation manager")
-            self.conversation_manager = ConversationManager(self.repo, system_prompt)
+            self.conversation_manager = ConversationManager(self.repo, self.resource_loader)
             logger.info("← Orchestrator: conversation manager ready")
 
             # Initialize tool executor

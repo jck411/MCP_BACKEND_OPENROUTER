@@ -15,7 +15,7 @@ chat:
     max_tool_hops: 15
     streaming:
       enabled: true
-    system_prompt: "You are a helpful assistant with a sense of humor.\nYou have access\
+    system_prompt: "you are a helpful assistant with a sense of humor. You have access\
       \ to to a list of tools like setting your own configuration. \n"
     tool_notifications:
       enabled: true

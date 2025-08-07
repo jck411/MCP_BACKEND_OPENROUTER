@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 class ConversationManager:
     """Manages conversation history and persistence operations."""
 
-    def __init__(self, repo, system_prompt: str):
+    def __init__(self, repo, resource_loader):
         self.repo = repo
-        self.system_prompt = system_prompt
+        self.resource_loader = resource_loader  # Get system prompt dynamically
 
     async def handle_user_message_persistence(
         self, conversation_id: str, user_msg: str, request_id: str
@@ -118,8 +118,9 @@ class ConversationManager:
         
         logger.debug("← Repository: loaded %d conversation events", len(events))
 
-        # Build conversation with system prompt and recent history
-        conv = [{"role": "system", "content": self.system_prompt}]
+        # Build conversation with system prompt and recent history (dynamically generated)
+        system_prompt = await self.resource_loader.make_system_prompt()
+        conv = [{"role": "system", "content": system_prompt}]
 
         for event in events:
             if event.type == "user_message":

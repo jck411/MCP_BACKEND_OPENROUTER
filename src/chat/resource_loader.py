@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 class ResourceLoader:
     """Handles resource loading and system prompt construction."""
 
-    def __init__(self, tool_mgr, chat_conf: dict[str, Any]):
+    def __init__(self, tool_mgr, configuration):
         self.tool_mgr = tool_mgr
-        self.chat_conf = chat_conf
+        self.configuration = configuration  # Use Configuration object instead of static dict
         self._resource_catalog: list[str] = []
 
     async def initialize(self) -> str:
@@ -82,7 +82,9 @@ class ResourceLoader:
         """Build the system prompt with actual resource contents and prompts."""
         logger.debug("→ Resources: building system prompt")
         
-        base = self.chat_conf["system_prompt"].rstrip()
+        # Get system prompt from current configuration (runtime-aware)
+        chat_service_config = self.configuration.get_chat_service_config()
+        base = chat_service_config.get("system_prompt", "You are a helpful assistant.").rstrip()
 
         if not self.tool_mgr:
             logger.warning("No tool manager available for system prompt construction")

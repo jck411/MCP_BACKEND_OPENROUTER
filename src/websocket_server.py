@@ -21,7 +21,11 @@ from src.history import AutoPersistRepo, ChatRepository
 
 # TYPE_CHECKING imports to avoid circular imports
 if TYPE_CHECKING:
-    from src.main import LLMClient, MCPClient
+    from typing import Any as LLMClient, Any as MCPClient
+else:
+    # At runtime, these will be the actual types passed in
+    LLMClient = object
+    MCPClient = object
 
 logger = logging.getLogger(__name__)
 
