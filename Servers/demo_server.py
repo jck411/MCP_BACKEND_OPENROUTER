@@ -22,6 +22,13 @@ TOOL_CONFIG = {
     "config_tools": True,
 }
 
+# Configuration validation constants
+MIN_TEMPERATURE = 0.0
+MAX_TEMPERATURE = 2.0
+MAX_TOKENS_LIMIT = 50000
+MIN_PENALTY = -2.0
+MAX_PENALTY = 2.0
+
 # Create server
 mcp = FastMCP("Demo")
 
@@ -92,6 +99,12 @@ if TOOL_CONFIG["config_tools"]:
         provider_config = providers.get(active_provider, {})
         return active_provider, provider_config
 
+    def _save_config(config: dict) -> None:
+        """Helper to save the runtime config"""
+        config_path = Path("/home/jack/MCP_BACKEND_OPENROUTER/src/runtime_config.yaml")
+        with config_path.open("w") as f:
+            yaml.dump(config, f, default_flow_style=False, indent=2)
+
     @mcp.tool()
     def get_system_prompt() -> str:
         """Get the current system prompt configuration"""
@@ -159,7 +172,119 @@ if TOOL_CONFIG["config_tools"]:
                 f"- Stop tokens: {stop_tokens}\n"
                 f"- End of text: {end_of_text}")
 
+    # Configuration editing tools
+    @mcp.tool()
+    def set_system_prompt(prompt: str) -> str:
+        """
+        Set the system prompt configuration but ensure it always begins with
+        'You are a helpful assistant.'
+        """
+        if not prompt.strip():
+            return "Error: System prompt cannot be empty"
 
+        config = _load_config()
+        # Ensure chat.service structure exists
+        if "chat" not in config:
+            config["chat"] = {}
+        if "service" not in config["chat"]:
+            config["chat"]["service"] = {}
+
+        user_prompt = prompt.strip()
+        prefix = "You are a helpful assistant."
+        # Avoid duplicating the prefix if the user already included it
+        if user_prompt.lower().startswith(prefix.lower()):
+            combined = user_prompt
+        else:
+            combined = f"{prefix} {user_prompt}"
+
+        config["chat"]["service"]["system_prompt"] = combined
+        _save_config(config)
+        return "System prompt updated successfully"
+
+    @mcp.tool()
+    def set_temperature(temperature: float) -> str:
+        """Set the temperature for the active LLM provider (0.0-2.0)"""
+        if not MIN_TEMPERATURE <= temperature <= MAX_TEMPERATURE:
+            return (f"Error: Temperature must be between {MIN_TEMPERATURE} "
+                    f"and {MAX_TEMPERATURE}")
+
+        config = _load_config()
+        active_provider, _ = _get_active_provider_config()
+
+        # Update the active provider's temperature
+        config["llm"]["providers"][active_provider]["temperature"] = temperature
+        _save_config(config)
+        return f"Temperature set to {temperature} for {active_provider}"
+
+    @mcp.tool()
+    def set_max_tokens(max_tokens: int) -> str:
+        """Set the max_tokens for the active LLM provider"""
+        if max_tokens <= 0:
+            return "Error: max_tokens must be positive"
+        if max_tokens > MAX_TOKENS_LIMIT:
+            return f"Error: max_tokens too large (max {MAX_TOKENS_LIMIT})"
+
+        config = _load_config()
+        active_provider, _ = _get_active_provider_config()
+
+        config["llm"]["providers"][active_provider]["max_tokens"] = max_tokens
+        _save_config(config)
+        return f"Max tokens set to {max_tokens} for {active_provider}"
+
+    @mcp.tool()
+    def set_top_p(top_p: float) -> str:
+        """Set the top_p sampling parameter for the active LLM provider (0.0-1.0)"""
+        if not 0.0 <= top_p <= 1.0:
+            return "Error: top_p must be between 0.0 and 1.0"
+
+        config = _load_config()
+        active_provider, _ = _get_active_provider_config()
+
+        config["llm"]["providers"][active_provider]["top_p"] = top_p
+        _save_config(config)
+        return f"Top-p set to {top_p} for {active_provider}"
+
+    @mcp.tool()
+    def switch_llm_provider(provider: str) -> str:
+        """Switch to a different LLM provider (groq, openai, openrouter, etc.)"""
+        config = _load_config()
+        available_providers = list(config.get("llm", {}).get("providers", {}).keys())
+
+        if provider not in available_providers:
+            available_str = ", ".join(available_providers)
+            return f"Error: Provider '{provider}' not found. Available: {available_str}"
+
+        config["llm"]["active"] = provider
+        _save_config(config)
+        return f"Switched to LLM provider: {provider}"
+
+    @mcp.tool()
+    def set_presence_penalty(penalty: float) -> str:
+        """Set the presence_penalty for the active LLM provider (-2.0 to 2.0)"""
+        if not MIN_PENALTY <= penalty <= MAX_PENALTY:
+            return (f"Error: presence_penalty must be between {MIN_PENALTY} "
+                    f"and {MAX_PENALTY}")
+
+        config = _load_config()
+        active_provider, _ = _get_active_provider_config()
+
+        config["llm"]["providers"][active_provider]["presence_penalty"] = penalty
+        _save_config(config)
+        return f"Presence penalty set to {penalty} for {active_provider}"
+
+    @mcp.tool()
+    def set_frequency_penalty(penalty: float) -> str:
+        """Set the frequency_penalty for the active LLM provider (-2.0 to 2.0)"""
+        if not MIN_PENALTY <= penalty <= MAX_PENALTY:
+            return (f"Error: frequency_penalty must be between {MIN_PENALTY} "
+                    f"and {MAX_PENALTY}")
+
+        config = _load_config()
+        active_provider, _ = _get_active_provider_config()
+
+        config["llm"]["providers"][active_provider]["frequency_penalty"] = penalty
+        _save_config(config)
+        return f"Frequency penalty set to {penalty} for {active_provider}"
 # Conversation prompts
 if TOOL_CONFIG["conversation_prompts"]:
     @mcp.prompt()
