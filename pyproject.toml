@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 mcp-platform = "src.main:main"
+mcp-reset-config = "src.config:reset_runtime_config_cli"
 
 [project.optional-dependencies]
 dev = [

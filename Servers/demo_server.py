@@ -8,6 +8,7 @@ demonstrates tools, and includes example prompts.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 import yaml
@@ -285,6 +286,45 @@ if TOOL_CONFIG["config_tools"]:
         config["llm"]["providers"][active_provider]["frequency_penalty"] = penalty
         _save_config(config)
         return f"Frequency penalty set to {penalty} for {active_provider}"
+
+    @mcp.tool()
+    def reset_runtime_config_to_defaults() -> str:
+        """
+        Reset runtime_config.yaml to defaults from config.yaml.
+        Writes defaults and updates metadata to trigger reload.
+        """
+        try:
+            default_path = Path("/home/jack/MCP_BACKEND_OPENROUTER/src/config.yaml")
+            runtime_path = Path("/home/jack/MCP_BACKEND_OPENROUTER/src/runtime_config.yaml")  # noqa: E501
+
+            default_cfg = yaml.safe_load(default_path.read_text())
+            if not isinstance(default_cfg, dict):
+                return "Error: Default config is not a valid mapping"
+
+            # Preserve and bump version if present to aid change tracking
+            current_version = 0
+            try:
+                existing = yaml.safe_load(runtime_path.read_text())
+                if isinstance(existing, dict):
+                    current_version = existing.get("_runtime_config", {}).get("version", 0)  # noqa: E501
+            except Exception:
+                pass
+
+            default_cfg["_runtime_config"] = {
+                "last_modified": time.time(),
+                "version": current_version + 1,
+                "is_runtime_config": True,
+                "default_config_path": "config.yaml",
+                "created_from_defaults": True,
+            }
+
+            with runtime_path.open("w") as f:
+                yaml.safe_dump(default_cfg, f, default_flow_style=False, indent=2)
+
+            return "✓ runtime_config.yaml reset to defaults from config.yaml"
+        except Exception as e:
+            logging.exception("Failed to reset runtime configuration")
+            return f"Error resetting runtime configuration: {e}"
 # Conversation prompts
 if TOOL_CONFIG["conversation_prompts"]:
     @mcp.prompt()

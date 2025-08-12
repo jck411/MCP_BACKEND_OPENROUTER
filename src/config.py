@@ -139,21 +139,21 @@ class Configuration:
             
     def unsubscribe_from_changes(self, callback: Callable[[dict[str, Any]], None]) -> None:
         """Unsubscribe from configuration change events.
-        
+
         Args:
             callback: Function to remove from notifications.
         """
         if callback in self._config_change_callbacks:
             self._config_change_callbacks.remove(callback)
-            
+
     async def start_watching(self) -> None:
         """Start the async file watching task for automatic config updates."""
         if self._watch_task is not None:
             return  # Already watching
-            
+
         self._watch_task = asyncio.create_task(self._watch_config_file())
         logging.info("Started watching runtime configuration file for changes")
-        
+
     async def stop_watching(self) -> None:
         """Stop the async file watching task."""
         if self._watch_task is not None:
@@ -164,7 +164,7 @@ class Configuration:
                 pass
             self._watch_task = None
             logging.info("Stopped watching runtime configuration file")
-            
+
     async def _watch_config_file(self) -> None:
         """Async task that watches for config file changes."""
         while True:
@@ -198,7 +198,7 @@ class Configuration:
 
     def reload_runtime_config(self) -> bool:
         """Manually reload runtime configuration.
-        
+
         Returns:
             True if configuration was reloaded, False if no changes detected.
         """
@@ -208,7 +208,7 @@ class Configuration:
 
     def save_runtime_config(self, config: dict[str, Any]) -> None:
         """Save configuration to runtime config file.
-        
+
         Args:
             config: Configuration dictionary to save.
         """
@@ -222,9 +222,9 @@ class Configuration:
                         current_runtime_config = loaded_config
             except (yaml.YAMLError, IOError):
                 pass
-        
+
         current_version = current_runtime_config.get('_runtime_config', {}).get('version', 0)
-        
+
         # Add runtime metadata
         runtime_config = config.copy()
         runtime_config['_runtime_config'] = {
@@ -233,16 +233,16 @@ class Configuration:
             'is_runtime_config': True,
             'default_config_path': 'config.yaml'
         }
-        
+
         with open(self._runtime_config_path, 'w') as file:
             yaml.safe_dump(runtime_config, file, default_flow_style=False, indent=2)
-        
+
         # Reload the configuration
         self._reload_config()
 
     def get_runtime_metadata(self) -> dict[str, Any]:
         """Get runtime configuration metadata.
-        
+
         Returns:
             Runtime configuration metadata dictionary.
         """
@@ -423,3 +423,21 @@ class Configuration:
             "connection_timeout": connection_timeout,
             "ping_timeout": ping_timeout,
         }
+
+    def reset_to_defaults(self) -> None:
+        """Reset runtime_config.yaml to the defaults from config.yaml."""
+        # Save a copy of the default config as the new runtime config.
+        # save_runtime_config will add runtime metadata and increment version automatically.
+        self.save_runtime_config(self._default_config.copy())
+
+
+def reset_runtime_config_cli() -> None:
+    """Console script that resets src/runtime_config.yaml to defaults."""
+    try:
+        cfg = Configuration()
+        cfg.reset_to_defaults()
+        print("✓ runtime_config.yaml reset to defaults from config.yaml")
+    except Exception as e:
+        import sys
+        print(f"Error resetting runtime configuration: {e}", file=sys.stderr)
+        sys.exit(1)
