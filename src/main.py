@@ -567,7 +567,9 @@ class LLMClient:
                             }
                             return
                         # Safe to replace client immediately
-                        await self._apply_config_change(provider_config, new_api_key)
+                        await self._apply_config_change(
+                            provider_config, new_api_key
+                        )
                     else:
                         # These are just API parameter changes - update immediately
                         logging.info(
