@@ -13,10 +13,9 @@ import sys
 
 import src.chat.chat_orchestrator
 from src.chat import ChatOrchestrator
+from src.clients import LLMClient, MCPClient
 from src.config import Configuration
 from src.history import create_repository
-from src.llm import LLMClient
-from src.mcp_client import MCPClient
 from src.websocket_server import run_websocket_server
 
 # Configure logging for the application

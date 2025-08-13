@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 from mcp import McpError, types
 
 if TYPE_CHECKING:
-    from src.mcp_client import MCPClient
+    from src.clients import MCPClient
 
 logger = logging.getLogger(__name__)
 
