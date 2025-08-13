@@ -3,7 +3,7 @@ Resource Loading Handler
 
 Handles fragile resource-related operations:
 - Resource availability checking
-- Resource catalog management  
+- Resource catalog management
 - System prompt construction with resources
 - Prompt listing and application
 
@@ -12,7 +12,6 @@ is isolated for better error handling and logging.
 """
 
 import logging
-from typing import Any
 
 from mcp import types
 
@@ -24,19 +23,21 @@ class ResourceLoader:
 
     def __init__(self, tool_mgr, configuration):
         self.tool_mgr = tool_mgr
-        self.configuration = configuration  # Use Configuration object instead of static dict
+        self.configuration = (
+            configuration  # Use Configuration object instead of static dict
+        )
         self._resource_catalog: list[str] = []
 
     async def initialize(self) -> str:
         """Initialize resource catalog and build system prompt."""
         logger.info("→ Resources: initializing resource loader")
-        
+
         # Update resource catalog to only include available resources
         await self.update_resource_catalog_on_availability()
-        
+
         # Build system prompt with available resources
         system_prompt = await self.make_system_prompt()
-        
+
         logger.info("← Resources: initialization completed")
         return system_prompt
 
@@ -75,16 +76,19 @@ class ResourceLoader:
         self._resource_catalog = available_uris
         logger.info(
             "← Resources: catalog updated - %d of %d resources available",
-            len(available_uris), len(all_resource_uris)
+            len(available_uris),
+            len(all_resource_uris),
         )
 
     async def make_system_prompt(self) -> str:
         """Build the system prompt with actual resource contents and prompts."""
         logger.debug("→ Resources: building system prompt")
-        
+
         # Get system prompt from current configuration (runtime-aware)
         chat_service_config = self.configuration.get_chat_service_config()
-        base = chat_service_config.get("system_prompt", "You are a helpful assistant.").rstrip()
+        base = chat_service_config.get(
+            "system_prompt", "You are a helpful assistant."
+        ).rstrip()
 
         if not self.tool_mgr:
             logger.warning("No tool manager available for system prompt construction")
@@ -93,7 +97,10 @@ class ResourceLoader:
         # Only include resources that are actually available
         available_resources = await self.get_available_resources()
         if available_resources:
-            logger.info("→ Resources: including %d resources in system prompt", len(available_resources))
+            logger.info(
+                "→ Resources: including %d resources in system prompt",
+                len(available_resources),
+            )
             base += "\n\n**Available Resources:**"
             for uri, content_info in available_resources.items():
                 resource_info = self.tool_mgr.get_resource_info(uri)
@@ -103,7 +110,7 @@ class ResourceLoader:
 
                 for content in content_info:
                     if isinstance(content, types.TextResourceContents):
-                        lines = content.text.strip().split('\n')
+                        lines = content.text.strip().split("\n")
                         for line in lines:
                             base += f"\n{line}"
                     elif isinstance(content, types.BlobResourceContents):
@@ -114,7 +121,9 @@ class ResourceLoader:
         # Add available prompts section
         prompt_names = self.tool_mgr.list_available_prompts()
         if prompt_names:
-            logger.info("→ Resources: including %d prompts in system prompt", len(prompt_names))
+            logger.info(
+                "→ Resources: including %d prompts in system prompt", len(prompt_names)
+            )
             prompt_list = []
             for name in prompt_names:
                 pinfo = self.tool_mgr.get_prompt_info(name)
@@ -124,8 +133,7 @@ class ResourceLoader:
 
             prompts_text = "\n".join(prompt_list)
             base += (
-                f"\n\n**Available Prompts** (use apply_prompt method):\n"
-                f"{prompts_text}"
+                f"\n\n**Available Prompts** (use apply_prompt method):\n{prompts_text}"
             )
 
         logger.debug("← Resources: system prompt built, length=%d chars", len(base))
@@ -149,7 +157,10 @@ class ResourceLoader:
             logger.debug("No resources in catalog or no tool manager available")
             return available_resources
 
-        logger.debug("→ Resources: checking availability of %d resources", len(self._resource_catalog))
+        logger.debug(
+            "→ Resources: checking availability of %d resources",
+            len(self._resource_catalog),
+        )
 
         for uri in self._resource_catalog:
             try:
@@ -165,14 +176,15 @@ class ResourceLoader:
                 # This prevents the LLM from being told about broken resources
                 logger.warning(
                     "→ Resources: %s is unavailable and excluded from system prompt: %s",
-                    uri, e
+                    uri,
+                    e,
                 )
                 continue
 
         if available_resources:
             logger.info(
                 "← Resources: %d resources are available for system prompt",
-                len(available_resources)
+                len(available_resources),
             )
         else:
             logger.info(
@@ -196,7 +208,9 @@ class ResourceLoader:
                 for m in res.messages
                 if isinstance(m.content, types.TextContent)
             ]
-            logger.info("← Resources: prompt applied successfully, %d messages", len(messages))
+            logger.info(
+                "← Resources: prompt applied successfully, %d messages", len(messages)
+            )
             return messages
         except Exception as e:
             logger.error("← Resources: failed to apply prompt '%s': %s", name, e)

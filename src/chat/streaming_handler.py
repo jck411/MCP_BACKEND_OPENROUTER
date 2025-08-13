@@ -3,7 +3,7 @@ Streaming Response Handler
 
 Handles complex/fragile streaming operations:
 - LLM response streaming
-- Delta accumulation and persistence  
+- Delta accumulation and persistence
 - Streaming tool call accumulation
 - Hybrid message yielding (ChatMessage + dict)
 - Frontend message streaming
@@ -28,12 +28,12 @@ class StreamingHandler:
     """Handles streaming responses and tool call iterations."""
 
     def __init__(
-        self, 
-        llm_client, 
-        tool_executor, 
+        self,
+        llm_client,
+        tool_executor,
         conversation_manager,
         repo,
-        chat_conf: dict[str, Any]
+        chat_conf: dict[str, Any],
     ):
         self.llm_client = llm_client
         self.tool_executor = tool_executor
@@ -52,7 +52,7 @@ class StreamingHandler:
         Raises:
             RuntimeError: If LLM client doesn't support streaming functionality
         """
-        if not hasattr(self.llm_client, 'get_streaming_response_with_tools'):
+        if not hasattr(self.llm_client, "get_streaming_response_with_tools"):
             raise RuntimeError(
                 "LLM client does not support streaming. "
                 "Use chat_once() for non-streaming responses."
@@ -66,8 +66,10 @@ class StreamingHandler:
         request_id: str,
     ) -> AsyncGenerator[ChatMessage]:
         """Stream response and handle tool calls iteratively."""
-        logger.info("→ Frontend: starting streaming response for request_id=%s", request_id)
-        
+        logger.info(
+            "→ Frontend: starting streaming response for request_id=%s", request_id
+        )
+
         full_content = ""
 
         # Initial response streaming
@@ -94,7 +96,7 @@ class StreamingHandler:
             conversation_id=conversation_id,
             request_id=request_id,
             assistant_msg=assistant_msg,
-            full_content=full_content
+            full_content=full_content,
         )
         async for msg in self.handle_tool_call_iterations(context):
             if isinstance(msg, str):
@@ -109,10 +111,12 @@ class StreamingHandler:
             conversation_id,
             request_id,
             full_content,
-            model=self.llm_client.config.get("model", "")
+            model=self.llm_client.config.get("model", ""),
         )
         logger.info("← Repository: delta compaction completed")
-        logger.info("← Frontend: streaming response completed for request_id=%s", request_id)
+        logger.info(
+            "← Frontend: streaming response completed for request_id=%s", request_id
+        )
 
     async def handle_tool_call_iterations(
         self, context: ToolCallContext
@@ -128,18 +132,20 @@ class StreamingHandler:
                 yield ChatMessage(
                     type="text",
                     content=warning_msg,
-                    metadata={"finish_reason": "tool_limit_reached"}
+                    metadata={"finish_reason": "tool_limit_reached"},
                 )
                 break
 
             logger.info("Starting tool call iteration %d", hops + 1)
-            
+
             # Execute tool calls
-            context.conv.append({
-                "role": "assistant",
-                "content": context.assistant_msg.get("content") or "",
-                "tool_calls": context.assistant_msg["tool_calls"],
-            })
+            context.conv.append(
+                {
+                    "role": "assistant",
+                    "content": context.assistant_msg.get("content") or "",
+                    "tool_calls": context.assistant_msg["tool_calls"],
+                }
+            )
             await self.tool_executor.execute_tool_calls(
                 context.conv, context.assistant_msg["tool_calls"]
             )
@@ -148,8 +154,11 @@ class StreamingHandler:
             logger.info("→ LLM: requesting follow-up response for hop %d", hops + 1)
             context.assistant_msg = {}
             async for chunk in self.stream_llm_response_with_deltas(
-                context.conv, context.tools_payload, context.conversation_id,
-                context.request_id, hop_number=hops + 1
+                context.conv,
+                context.tools_payload,
+                context.conversation_id,
+                context.request_id,
+                hop_number=hops + 1,
             ):
                 if isinstance(chunk, ChatMessage):
                     if chunk.type == "text":
@@ -171,7 +180,7 @@ class StreamingHandler:
         tools_payload: list[dict[str, Any]],
         conversation_id: str,
         user_request_id: str,
-        hop_number: int = 0
+        hop_number: int = 0,
     ) -> AsyncGenerator[ChatMessage | dict[str, Any]]:
         """
         Stream response from LLM, persist deltas, and yield chunks to user.
@@ -180,7 +189,7 @@ class StreamingHandler:
         are accumulated in the background for efficient execution.
         """
         logger.info("→ LLM: starting streaming request (hop %d)", hop_number)
-        
+
         message_buffer = ""
         current_tool_calls: list[dict[str, Any]] = []
         finish_reason: str | None = None
@@ -214,19 +223,21 @@ class StreamingHandler:
                         "user_request_id": user_request_id,  # Link to request
                         "hop_number": hop_number,  # Track tool call iteration depth
                         "delta_index": delta_index,  # Preserve streaming order
-                        "request_id": user_request_id  # Redundant for easier queries
-                    }
+                        "request_id": user_request_id,  # Redundant for easier queries
+                    },
                 )
                 await self.repo.add_event(delta_event)
                 delta_index += 1  # Increment for next delta
 
                 # IMMEDIATE USER FEEDBACK: Stream to user without waiting
                 # This is what makes the UI feel responsive during long responses
-                logger.debug("→ Frontend: streaming content delta, length=%d", len(content))
+                logger.debug(
+                    "→ Frontend: streaming content delta, length=%d", len(content)
+                )
                 yield ChatMessage(
                     type="text",
                     content=content,
-                    metadata={"type": "delta", "hop": hop_number}
+                    metadata={"type": "delta", "hop": hop_number},
                 )
 
             # PRIORITY 2: Accumulate tool calls for batch execution
@@ -239,8 +250,11 @@ class StreamingHandler:
             if "finish_reason" in choice:
                 finish_reason = choice["finish_reason"]
 
-        logger.info("← LLM: streaming completed (hop %d), finish_reason=%s", 
-                   hop_number, finish_reason)
+        logger.info(
+            "← LLM: streaming completed (hop %d), finish_reason=%s",
+            hop_number,
+            finish_reason,
+        )
 
         # Provide user feedback when transitioning to tool execution phase
         # This helps users understand what's happening during longer operations
@@ -248,21 +262,24 @@ class StreamingHandler:
             call["function"]["name"] for call in current_tool_calls
         ):
             tool_count = len(current_tool_calls)
-            logger.info("→ Frontend: tool execution notification (%d tools)", tool_count)
+            logger.info(
+                "→ Frontend: tool execution notification (%d tools)", tool_count
+            )
             yield ChatMessage(
                 type="tool_execution",
                 content=f"Executing {tool_count} tool(s)...",
-                metadata={"tool_count": tool_count, "hop": hop_number}
+                metadata={"tool_count": tool_count, "hop": hop_number},
             )
 
         # Return complete assistant message for tool call processing
         # This allows the caller to determine if more LLM interactions are needed
         yield {
             "content": message_buffer or None,
-            "tool_calls": current_tool_calls if current_tool_calls and any(
-                call["function"]["name"] for call in current_tool_calls
-            ) else None,
-            "finish_reason": finish_reason
+            "tool_calls": current_tool_calls
+            if current_tool_calls
+            and any(call["function"]["name"] for call in current_tool_calls)
+            else None,
+            "finish_reason": finish_reason,
         }
 
     async def yield_existing_response(
@@ -291,10 +308,14 @@ class StreamingHandler:
             If no existing response is found (edge case), this generator yields
             nothing, which will result in an empty response stream.
         """
-        logger.info("→ Repository: retrieving cached response for request_id=%s", request_id)
-        
-        existing_response = await self.conversation_manager.get_existing_assistant_response(
-            conversation_id, request_id
+        logger.info(
+            "→ Repository: retrieving cached response for request_id=%s", request_id
+        )
+
+        existing_response = (
+            await self.conversation_manager.get_existing_assistant_response(
+                conversation_id, request_id
+            )
         )
         if existing_response and existing_response.content:
             content_str = (
@@ -302,11 +323,11 @@ class StreamingHandler:
                 if isinstance(existing_response.content, str)
                 else str(existing_response.content)
             )
-            logger.info("→ Frontend: streaming cached response, length=%d", len(content_str))
+            logger.info(
+                "→ Frontend: streaming cached response, length=%d", len(content_str)
+            )
             yield ChatMessage(
-                type="text",
-                content=content_str,
-                metadata={"cached": True}
+                type="text", content=content_str, metadata={"cached": True}
             )
         else:
             logger.warning("No cached response found for request_id=%s", request_id)
@@ -334,7 +355,7 @@ class StreamingHandler:
         """
         reply_data = {
             "message": assistant_msg,
-            "model": self.llm_client.config.get("model", "")
+            "model": self.llm_client.config.get("model", ""),
         }
         self.log_llm_reply(reply_data, "Streaming initial response")
 
@@ -371,8 +392,7 @@ class StreamingHandler:
             log_parts.append(f"Tool calls: {len(tool_calls)}")
             for i, call in enumerate(tool_calls):
                 func_name = call.get("function", {}).get("name", "unknown")
-                log_parts.append(f"  - Tool {i+1}: {func_name}")
-
+                log_parts.append(f"  - Tool {i + 1}: {func_name}")
 
         model = reply.get("model", "unknown")
         log_parts.append(f"Model: {model}")

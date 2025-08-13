@@ -11,11 +11,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+
 class ChatMessage(BaseModel):
     """
     Represents a chat message with metadata.
     Pydantic model for proper validation and serialization.
     """
+
     type: str
     content: str
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -23,6 +25,7 @@ class ChatMessage(BaseModel):
 
 class ToolCallContext(BaseModel):
     """Parameters for tool call iteration handling."""
+
     conv: list[dict[str, Any]]
     tools_payload: list[dict[str, Any]]
     conversation_id: str

@@ -4,6 +4,7 @@ Chat Repository Interface and Utilities
 
 This module defines the repository protocol and utility functions for chat history.
 """
+
 from __future__ import annotations
 
 from typing import Protocol
@@ -33,6 +34,7 @@ def _visible_to_llm(ev: ChatEvent) -> bool:
 
 # ---------- Repository interface ----------
 
+
 class ChatRepository(Protocol):
     """Protocol defining the interface for chat storage backends."""
 
@@ -57,8 +59,11 @@ class ChatRepository(Protocol):
     ) -> str | None: ...
 
     async def compact_deltas(
-        self, conversation_id: str, user_request_id: str, final_content: str,
-        model: str | None = None
+        self,
+        conversation_id: str,
+        user_request_id: str,
+        final_content: str,
+        model: str | None = None,
     ) -> ChatEvent: ...
 
     async def handle_clear_session(self) -> bool: ...

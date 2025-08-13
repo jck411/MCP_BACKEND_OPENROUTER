@@ -21,7 +21,8 @@ from src.history import AutoPersistRepo, ChatRepository
 
 # TYPE_CHECKING imports to avoid circular imports
 if TYPE_CHECKING:
-    from typing import Any as LLMClient, Any as MCPClient
+    from typing import Any as LLMClient
+    from typing import Any as MCPClient
 else:
     # At runtime, these will be the actual types passed in
     LLMClient = object
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 # Pydantic models for WebSocket message validation
 class ChatPayload(BaseModel):
     """Payload for chat messages with validation."""
+
     text: str
     streaming: bool | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -40,6 +42,7 @@ class ChatPayload(BaseModel):
 
 class WebSocketMessage(BaseModel):
     """WebSocket message structure with validation."""
+
     request_id: str
     payload: ChatPayload
     message_type: str = "chat"
@@ -47,6 +50,7 @@ class WebSocketMessage(BaseModel):
 
 class WebSocketResponse(BaseModel):
     """WebSocket response structure."""
+
     request_id: str
     status: str  # "processing", "streaming", "completed", "error"
     chunk: dict[str, Any] = Field(default_factory=dict)
@@ -173,7 +177,7 @@ class WebSocketServer:
             await self._send_error_response(
                 websocket,
                 message_data.get("request_id", "unknown"),
-                f"Invalid message format: {e}"
+                f"Invalid message format: {e}",
             )
             return
 
@@ -198,7 +202,7 @@ class WebSocketServer:
                 request_id,
                 "Streaming configuration missing. "
                 "Set 'chat.service.streaming.enabled' in config.yaml "
-                "or specify 'streaming: true/false' in payload."
+                "or specify 'streaming: true/false' in payload.",
             )
             return
 
@@ -210,7 +214,7 @@ class WebSocketServer:
             response = WebSocketResponse(
                 request_id=request_id,
                 status="processing",
-                chunk={"metadata": {"user_message": user_message}}
+                chunk={"metadata": {"user_message": user_message}},
             )
             await websocket.send_text(response.model_dump_json())
 
@@ -291,9 +295,9 @@ class WebSocketServer:
                             "metadata": {
                                 "new_conversation_id": new_conversation_id,
                                 "old_conversation_id": old_conversation_id,
-                                "full_wipe_occurred": full_wipe_occurred
-                            }
-                        }
+                                "full_wipe_occurred": full_wipe_occurred,
+                            },
+                        },
                     }
                 )
             )
@@ -309,9 +313,7 @@ class WebSocketServer:
     ):
         """Send error response using Pydantic model."""
         response = WebSocketResponse(
-            request_id=request_id,
-            status="error",
-            chunk={"error": error_message}
+            request_id=request_id, status="error", chunk={"error": error_message}
         )
         await websocket.send_text(response.model_dump_json())
 
@@ -471,33 +473,39 @@ class WebSocketServer:
             history_messages = []
             for event in history:
                 if event.type == "user_message":
-                    history_messages.append({
-                        "role": "user",
-                        "content": str(event.content or ""),
-                        "timestamp": event.created_at.isoformat()
-                    })
+                    history_messages.append(
+                        {
+                            "role": "user",
+                            "content": str(event.content or ""),
+                            "timestamp": event.created_at.isoformat(),
+                        }
+                    )
                 elif event.type == "assistant_message":
-                    history_messages.append({
-                        "role": "assistant",
-                        "content": str(event.content or ""),
-                        "timestamp": event.created_at.isoformat()
-                    })
+                    history_messages.append(
+                        {
+                            "role": "assistant",
+                            "content": str(event.content or ""),
+                            "timestamp": event.created_at.isoformat(),
+                        }
+                    )
 
             if history_messages:
                 # Send history as a special initialization message
                 await websocket.send_text(
-                    json.dumps({
-                        "request_id": str(uuid.uuid4()),
-                        "status": "init",
-                        "chunk": {
-                            "type": "conversation_history",
-                            "data": history_messages,
-                            "metadata": {
-                                "conversation_id": recent_conversation_id,
-                                "message_count": len(history_messages)
-                            }
+                    json.dumps(
+                        {
+                            "request_id": str(uuid.uuid4()),
+                            "status": "init",
+                            "chunk": {
+                                "type": "conversation_history",
+                                "data": history_messages,
+                                "metadata": {
+                                    "conversation_id": recent_conversation_id,
+                                    "message_count": len(history_messages),
+                                },
+                            },
                         }
-                    })
+                    )
                 )
 
                 logger.info(

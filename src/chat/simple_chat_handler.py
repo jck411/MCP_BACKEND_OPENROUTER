@@ -23,11 +23,7 @@ class SimpleChatHandler:
     """Handles non-streaming chat operations."""
 
     def __init__(
-        self,
-        llm_client,
-        tool_executor,
-        conversation_manager,
-        chat_conf: dict[str, Any]
+        self, llm_client, tool_executor, conversation_manager, chat_conf: dict[str, Any]
     ):
         self.llm_client = llm_client
         self.tool_executor = tool_executor
@@ -39,11 +35,11 @@ class SimpleChatHandler:
         conversation_id: str,
         user_msg: str,
         request_id: str,
-        tools_payload: list[dict[str, Any]]
+        tools_payload: list[dict[str, Any]],
     ) -> ChatEvent:
         """
         Non-streaming chat with consistent history management.
-        
+
         Flow:
         1. Persist user message first (with idempotency check)
         2. Build history from repository
@@ -53,35 +49,46 @@ class SimpleChatHandler:
         logger.info("Starting non-streaming chat for request_id=%s", request_id)
 
         # Check for existing response to prevent double-billing
-        existing_response = await self.conversation_manager.get_existing_assistant_response(
-            conversation_id, request_id
+        existing_response = (
+            await self.conversation_manager.get_existing_assistant_response(
+                conversation_id, request_id
+            )
         )
         if existing_response:
-            logger.info("← Repository: returning cached response for request_id=%s", request_id)
+            logger.info(
+                "← Repository: returning cached response for request_id=%s", request_id
+            )
             return existing_response
 
         # Handle user message persistence
-        should_continue = await self.conversation_manager.handle_user_message_persistence(
-            conversation_id, user_msg, request_id
+        should_continue = (
+            await self.conversation_manager.handle_user_message_persistence(
+                conversation_id, user_msg, request_id
+            )
         )
-        
+
         if not should_continue:
             # Check again for existing response after idempotency handling
-            existing_response = await self.conversation_manager.get_existing_assistant_response(
-                conversation_id, request_id
+            existing_response = (
+                await self.conversation_manager.get_existing_assistant_response(
+                    conversation_id, request_id
+                )
             )
             if existing_response:
-                logger.info("← Repository: returning existing response after idempotency check")
+                logger.info(
+                    "← Repository: returning existing response after idempotency check"
+                )
                 return existing_response
 
         # Build conversation history from repository
-        conv = await self.conversation_manager.build_conversation_history(conversation_id, user_msg)
+        conv = await self.conversation_manager.build_conversation_history(
+            conversation_id, user_msg
+        )
 
         # Generate assistant response
-        (
-            assistant_full_text,
-            model
-        ) = await self.generate_assistant_response(conv, tools_payload)
+        (assistant_full_text, model) = await self.generate_assistant_response(
+            conv, tools_payload
+        )
 
         # Persist assistant message and reference to user request
         assistant_ev = await self.conversation_manager.persist_assistant_message(
@@ -89,7 +96,7 @@ class SimpleChatHandler:
             request_id=request_id,
             content=assistant_full_text,
             model=model,
-            provider=self.llm_client.config.get("provider", "unknown")
+            provider=self.llm_client.config.get("provider", "unknown"),
         )
 
         logger.info("Completed non-streaming chat for request_id=%s", request_id)
@@ -109,7 +116,6 @@ class SimpleChatHandler:
 
         # Log LLM reply if configured
         self.log_llm_reply(reply, "Initial LLM response")
-
 
         # Store model from first API call
         model = reply.get("model", "")
@@ -148,7 +154,9 @@ class SimpleChatHandler:
                 logger.info("→ MCP[%s]: executing tool", tool_name)
                 result = await self.tool_executor.tool_mgr.call_tool(tool_name, args)
                 content = self.tool_executor.pluck_content(result)
-                logger.info("← MCP[%s]: success, content length: %d", tool_name, len(content))
+                logger.info(
+                    "← MCP[%s]: success, content length: %d", tool_name, len(content)
+                )
 
                 conv.append(
                     {
@@ -165,7 +173,6 @@ class SimpleChatHandler:
 
             # Log LLM reply if configured
             self.log_llm_reply(reply, f"Tool call follow-up response (hop {hops + 1})")
-
 
             if txt := assistant_msg.get("content"):
                 assistant_full_text += txt
@@ -209,8 +216,7 @@ class SimpleChatHandler:
             log_parts.append(f"Tool calls: {len(tool_calls)}")
             for i, call in enumerate(tool_calls):
                 func_name = call.get("function", {}).get("name", "unknown")
-                log_parts.append(f"  - Tool {i+1}: {func_name}")
-
+                log_parts.append(f"  - Tool {i + 1}: {func_name}")
 
         model = reply.get("model", "unknown")
         log_parts.append(f"Model: {model}")

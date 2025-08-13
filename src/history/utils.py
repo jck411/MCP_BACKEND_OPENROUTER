@@ -4,6 +4,7 @@ Chat History Utilities
 
 Helper functions and utilities for the chat history system.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,16 +34,14 @@ async def demo_basic_storage():
         type="user_message",
         role="user",
         content="Hello!",
-        extra={"request_id": "user_001"}
+        extra={"request_id": "user_001"},
     )
     success = await repo.add_event(user_ev)
     logger.info(f"User message added: {success}")
 
     # Test assistant message with tool calls
     tool_call = ToolCall(
-        id="call_123",
-        name="get_weather",
-        arguments={"location": "San Francisco"}
+        id="call_123", name="get_weather", arguments={"location": "San Francisco"}
     )
     asst_ev = ChatEvent(
         conversation_id=conv_id,
@@ -52,7 +51,7 @@ async def demo_basic_storage():
         tool_calls=[tool_call],
         provider="test_provider",
         model="test-model",
-        extra={"request_id": "assistant_001", "user_request_id": "user_001"}
+        extra={"request_id": "assistant_001", "user_request_id": "user_001"},
     )
     success = await repo.add_event(asst_ev)
     logger.info(f"Assistant message added: {success}")
@@ -62,7 +61,7 @@ async def demo_basic_storage():
         conversation_id=conv_id,
         type="tool_result",
         content="The weather in San Francisco is 72°F and sunny.",
-        extra={"tool_call_id": "call_123", "request_id": "tool_001"}
+        extra={"tool_call_id": "call_123", "request_id": "tool_001"},
     )
     success = await repo.add_event(tool_result_ev)
     logger.info(f"Tool result added: {success}")
@@ -103,6 +102,7 @@ async def main():
 
 if __name__ == "__main__":
     import logging
+
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 

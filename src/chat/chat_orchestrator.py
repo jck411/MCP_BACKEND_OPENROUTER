@@ -63,7 +63,7 @@ class ChatOrchestrator:
         self.configuration = service_config.configuration
         self._ctx_window = service_config.ctx_window
         self.chat_conf = self.config.get("chat", {}).get("service", {})
-        
+
         # Core components
         self.tool_mgr: ToolSchemaManager | None = None
         self.resource_loader: ResourceLoader | None = None
@@ -71,7 +71,7 @@ class ChatOrchestrator:
         self.tool_executor: ToolExecutor | None = None
         self.streaming_handler: StreamingHandler | None = None
         self.simple_chat_handler: SimpleChatHandler | None = None
-        
+
         # Initialization state
         self._init_lock = asyncio.Lock()
         self._ready = asyncio.Event()
@@ -97,7 +97,8 @@ class ChatOrchestrator:
                 if isinstance(result, Exception):
                     logger.warning(
                         "Client '%s' failed to connect: %s",
-                        self.clients[i].name, result
+                        self.clients[i].name,
+                        result,
                     )
                 else:
                     connected_clients.append(self.clients[i])
@@ -109,7 +110,8 @@ class ChatOrchestrator:
             else:
                 logger.info(
                     "← Orchestrator: connected to %d out of %d MCP clients",
-                    len(connected_clients), len(self.clients)
+                    len(connected_clients),
+                    len(self.clients),
                 )
 
             # Initialize tool manager (empty list is acceptable)
@@ -126,7 +128,9 @@ class ChatOrchestrator:
 
             # Initialize conversation manager
             logger.info("→ Orchestrator: initializing conversation manager")
-            self.conversation_manager = ConversationManager(self.repo, self.resource_loader)
+            self.conversation_manager = ConversationManager(
+                self.repo, self.resource_loader
+            )
             logger.info("← Orchestrator: conversation manager ready")
 
             # Initialize tool executor
@@ -141,13 +145,13 @@ class ChatOrchestrator:
                 self.tool_executor,
                 self.conversation_manager,
                 self.repo,
-                self.chat_conf
+                self.chat_conf,
             )
             self.simple_chat_handler = SimpleChatHandler(
                 self.llm_client,
                 self.tool_executor,
                 self.conversation_manager,
-                self.chat_conf
+                self.chat_conf,
             )
             logger.info("← Orchestrator: handlers ready")
 
@@ -180,14 +184,16 @@ class ChatOrchestrator:
         Delegates to streaming handler after initialization and validation.
         """
         await self._ready.wait()
-        
+
         # Validate components are ready
-        if not all([
-            self.streaming_handler,
-            self.conversation_manager,
-            self.tool_executor,
-            self.tool_mgr
-        ]):
+        if not all(
+            [
+                self.streaming_handler,
+                self.conversation_manager,
+                self.tool_executor,
+                self.tool_mgr,
+            ]
+        ):
             raise RuntimeError("Chat orchestrator components not properly initialized")
 
         # Type assertions for mypy/pylance
@@ -199,11 +205,15 @@ class ChatOrchestrator:
         # Validate streaming support
         self.streaming_handler.validate_streaming_support()
 
-        logger.info("→ Orchestrator: processing streaming message for request_id=%s", request_id)
+        logger.info(
+            "→ Orchestrator: processing streaming message for request_id=%s", request_id
+        )
 
         # Handle idempotency and user message persistence
-        should_continue = await self.conversation_manager.handle_user_message_persistence(
-            conversation_id, user_msg, request_id
+        should_continue = (
+            await self.conversation_manager.handle_user_message_persistence(
+                conversation_id, user_msg, request_id
+            )
         )
         if not should_continue:
             logger.info("→ Orchestrator: returning cached response")
@@ -235,19 +245,21 @@ class ChatOrchestrator:
     ) -> ChatEvent:
         """
         Non-streaming chat with consistent history management.
-        
+
         This is the main entry point for simple, non-streaming chat interactions.
         Delegates to simple chat handler after initialization and validation.
         """
         await self._ready.wait()
 
         # Validate components are ready
-        if not all([
-            self.simple_chat_handler,
-            self.conversation_manager,
-            self.tool_executor,
-            self.tool_mgr
-        ]):
+        if not all(
+            [
+                self.simple_chat_handler,
+                self.conversation_manager,
+                self.tool_executor,
+                self.tool_mgr,
+            ]
+        ):
             raise RuntimeError("Chat orchestrator components not properly initialized")
 
         # Type assertions for mypy/pylance
@@ -256,7 +268,10 @@ class ChatOrchestrator:
         assert self.tool_executor is not None
         assert self.tool_mgr is not None
 
-        logger.info("→ Orchestrator: processing non-streaming chat for request_id=%s", request_id)
+        logger.info(
+            "→ Orchestrator: processing non-streaming chat for request_id=%s",
+            request_id,
+        )
 
         tools_payload = self.tool_mgr.get_openai_tools()
 

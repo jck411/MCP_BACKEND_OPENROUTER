@@ -4,6 +4,7 @@ Chat History Module
 
 Modular chat history system with multiple storage backends.
 """
+
 from __future__ import annotations
 
 from .auto_persist_repo import AutoPersistRepo

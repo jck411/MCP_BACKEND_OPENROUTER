@@ -60,15 +60,17 @@ class ToolExecutor:
             - Rebuilds name and arguments strings from parts after each update
         """
         logger.debug("Accumulating tool call deltas: %d fragments", len(tool_calls))
-        
+
         for tool_call in tool_calls:
             # Ensure we have enough space in the buffer for this tool call index
             while len(current_tool_calls) <= tool_call.get("index", 0):
-                current_tool_calls.append({
-                    "id": "",
-                    "type": "function",
-                    "function": {"name": "", "arguments": ""}
-                })
+                current_tool_calls.append(
+                    {
+                        "id": "",
+                        "type": "function",
+                        "function": {"name": "", "arguments": ""},
+                    }
+                )
 
             idx = tool_call.get("index", 0)
 
@@ -87,7 +89,9 @@ class ToolExecutor:
                     if "name_parts" not in current_tool_calls[idx]["function"]:
                         current_tool_calls[idx]["function"]["name_parts"] = []
                     # Accumulate this name fragment
-                    current_tool_calls[idx]["function"]["name_parts"].append(func["name"])
+                    current_tool_calls[idx]["function"]["name_parts"].append(
+                        func["name"]
+                    )
                     # Rebuild complete name from all parts
                     current_tool_calls[idx]["function"]["name"] = "".join(
                         current_tool_calls[idx]["function"]["name_parts"]
@@ -100,14 +104,18 @@ class ToolExecutor:
                     if "args_parts" not in current_tool_calls[idx]["function"]:
                         current_tool_calls[idx]["function"]["args_parts"] = []
                     # Accumulate this argument fragment
-                    current_tool_calls[idx]["function"]["args_parts"].append(func["arguments"])
+                    current_tool_calls[idx]["function"]["args_parts"].append(
+                        func["arguments"]
+                    )
                     # Rebuild complete arguments JSON from all parts
                     current_tool_calls[idx]["function"]["arguments"] = "".join(
                         current_tool_calls[idx]["function"]["args_parts"]
                     )
                     logger.debug("Tool call %d: accumulated argument fragment", idx)
 
-        logger.debug("Completed tool call accumulation: %d total calls", len(current_tool_calls))
+        logger.debug(
+            "Completed tool call accumulation: %d total calls", len(current_tool_calls)
+        )
 
     async def execute_tool_calls(
         self, conv: list[dict[str, Any]], calls: list[dict[str, Any]]
@@ -144,25 +152,34 @@ class ToolExecutor:
         for i, call in enumerate(calls):
             tool_name = call["function"]["name"]
             call_id = call["id"]
-            
+
             # Parse JSON arguments with defensive handling for malformed JSON
             try:
                 args = json.loads(call["function"]["arguments"] or "{}")
                 logger.debug("→ MCP[%s]: calling with args: %s", tool_name, args)
             except json.JSONDecodeError as e:
-                logger.warning("→ MCP[%s]: malformed JSON arguments, using empty dict: %s", 
-                              tool_name, e)
+                logger.warning(
+                    "→ MCP[%s]: malformed JSON arguments, using empty dict: %s",
+                    tool_name,
+                    e,
+                )
                 args = {}
 
             try:
                 # Execute tool through tool manager (handles validation and routing)
-                logger.info("→ MCP[%s]: executing tool call %d/%d", tool_name, i + 1, len(calls))
+                logger.info(
+                    "→ MCP[%s]: executing tool call %d/%d", tool_name, i + 1, len(calls)
+                )
                 result = await self.tool_mgr.call_tool(tool_name, args)
-                
+
                 # Extract readable content from MCP result structure
                 content = self.pluck_content(result)
-                logger.info("← MCP[%s]: success, content length: %d chars", tool_name, len(content))
-                
+                logger.info(
+                    "← MCP[%s]: success, content length: %d chars",
+                    tool_name,
+                    len(content),
+                )
+
                 # Append tool result to conversation in OpenAI format
                 conv.append(
                     {
@@ -171,11 +188,11 @@ class ToolExecutor:
                         "content": content,
                     }
                 )
-                
+
             except Exception as e:
-                error_msg = f"Tool execution failed: {str(e)}"
+                error_msg = f"Tool execution failed: {e!s}"
                 logger.error("← MCP[%s]: failed with error: %s", tool_name, error_msg)
-                
+
                 # Still append an error result to maintain conversation flow
                 conv.append(
                     {
@@ -190,7 +207,7 @@ class ToolExecutor:
     def check_tool_hop_limit(self, hops: int) -> tuple[bool, str | None]:
         """
         Check if tool call hop limit has been reached.
-        
+
         Returns:
             tuple: (should_stop, warning_message)
         """
@@ -200,7 +217,9 @@ class ToolExecutor:
                 f"⚠️ Reached maximum tool call limit ({max_tool_hops}). "
                 "Stopping to prevent infinite recursion."
             )
-            logger.warning("Maximum tool hops (%d) reached, stopping recursion", max_tool_hops)
+            logger.warning(
+                "Maximum tool hops (%d) reached, stopping recursion", max_tool_hops
+            )
             return True, warning_msg
         return False, None
 

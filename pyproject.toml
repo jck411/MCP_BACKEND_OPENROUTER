@@ -19,6 +19,7 @@ dependencies = [
     "starlette>=0.34.0",
     "sqlalchemy>=2.0.0",
     "aiosqlite>=0.19.0",
+    "ruff>=0.12.5",
 ]
 
 [project.scripts]
@@ -29,7 +30,6 @@ mcp-reset-config = "src.config:reset_runtime_config_cli"
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.2",
-    "ruff>=0.2.1",
     "mypy>=1.8.0",
     "pyright>=1.1.350",
 ]

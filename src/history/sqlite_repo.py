@@ -8,6 +8,7 @@ CONFIG: Not used directly - base class only
 PURPOSE: Foundation for AutoPersistRepo (don't instantiate this directly)
 FEATURES: SQLite ops, async support, JSON serialization, indexing
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -105,12 +106,14 @@ class SQLiteRepo(ChatRepository):
             "type": event.type,
             "role": event.role,
             "content": (
-                event.content if isinstance(event.content, str)
+                event.content
+                if isinstance(event.content, str)
                 else json.dumps(event.content)
             ),
             "tool_calls": (
                 json.dumps([tc.model_dump() for tc in event.tool_calls])
-                if event.tool_calls else None
+                if event.tool_calls
+                else None
             ),
             "provider": event.provider,
             "model": event.model,
@@ -124,14 +127,13 @@ class SQLiteRepo(ChatRepository):
         """Convert database row to ChatEvent."""
         # Parse JSON fields
         content = row["content"]
-        if content and content.startswith('['):
+        if content and content.startswith("["):
             with contextlib.suppress(json.JSONDecodeError):
                 content = json.loads(content)
 
         tool_calls = []
         if row["tool_calls"]:
             tool_calls = [ToolCall(**tc) for tc in json.loads(row["tool_calls"])]
-
 
         extra = json.loads(row["extra"]) if row["extra"] else {}
         raw = json.loads(row["raw"]) if row["raw"] else None
@@ -161,18 +163,22 @@ class SQLiteRepo(ChatRepository):
             request_id = event.extra.get("request_id")
             if request_id:
                 async with db.execute(
-                    ("SELECT 1 FROM chat_events WHERE conversation_id = ? "
-                     "AND request_id = ?"),
-                    (event.conversation_id, request_id)
+                    (
+                        "SELECT 1 FROM chat_events WHERE conversation_id = ? "
+                        "AND request_id = ?"
+                    ),
+                    (event.conversation_id, request_id),
                 ) as cursor:
                     if await cursor.fetchone():
                         return False  # Duplicate found
 
             # Get next sequence number
             async with db.execute(
-                ("SELECT COALESCE(MAX(seq), 0) + 1 FROM chat_events "
-                 "WHERE conversation_id = ?"),
-                (event.conversation_id,)
+                (
+                    "SELECT COALESCE(MAX(seq), 0) + 1 FROM chat_events "
+                    "WHERE conversation_id = ?"
+                ),
+                (event.conversation_id,),
             ) as cursor:
                 row = await cursor.fetchone()
                 event.seq = row[0] if row else 1
@@ -184,7 +190,7 @@ class SQLiteRepo(ChatRepository):
 
             await db.execute(
                 f"INSERT INTO chat_events ({columns}) VALUES ({placeholders})",
-                list(row_data.values())
+                list(row_data.values()),
             )
             await db.commit()
             return True
@@ -238,10 +244,10 @@ class SQLiteRepo(ChatRepository):
     async def list_conversations(self) -> list[str]:
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self.db_path) as db, \
-            db.execute(
-                "SELECT DISTINCT conversation_id FROM chat_events"
-            ) as cursor:
+        async with (
+            aiosqlite.connect(self.db_path) as db,
+            db.execute("SELECT DISTINCT conversation_id FROM chat_events") as cursor,
+        ):
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
 
@@ -253,9 +259,11 @@ class SQLiteRepo(ChatRepository):
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                ("SELECT * FROM chat_events WHERE conversation_id = ? "
-                 "AND request_id = ?"),
-                (conversation_id, request_id)
+                (
+                    "SELECT * FROM chat_events WHERE conversation_id = ? "
+                    "AND request_id = ?"
+                ),
+                (conversation_id, request_id),
             ) as cursor:
                 row = await cursor.fetchone()
                 return self._deserialize_event(dict(row)) if row else None
@@ -265,8 +273,10 @@ class SQLiteRepo(ChatRepository):
     ) -> str | None:
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self.db_path) as db, db.execute(
-            """
+        async with (
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                """
             SELECT id FROM chat_events
             WHERE conversation_id = ?
             AND type = 'assistant_message'
@@ -274,14 +284,18 @@ class SQLiteRepo(ChatRepository):
             ORDER BY seq DESC
             LIMIT 1
             """,
-            (conversation_id, user_request_id)
-        ) as cursor:
+                (conversation_id, user_request_id),
+            ) as cursor,
+        ):
             row = await cursor.fetchone()
             return row[0] if row else None
 
     async def compact_deltas(
-        self, conversation_id: str, user_request_id: str, final_content: str,
-        model: str | None = None
+        self,
+        conversation_id: str,
+        user_request_id: str,
+        final_content: str,
+        model: str | None = None,
     ) -> ChatEvent:
         """Compact delta events into a single assistant_message and remove deltas."""
         await self._ensure_initialized()
@@ -291,12 +305,12 @@ class SQLiteRepo(ChatRepository):
             assistant_req_id = f"assistant:{user_request_id}"
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                    (
-                        "SELECT * FROM chat_events WHERE conversation_id = ? "
-                        "AND request_id = ?"
-                    ),
-                    (conversation_id, assistant_req_id)
-                ) as cursor:
+                (
+                    "SELECT * FROM chat_events WHERE conversation_id = ? "
+                    "AND request_id = ?"
+                ),
+                (conversation_id, assistant_req_id),
+            ) as cursor:
                 row = await cursor.fetchone()
                 if row:
                     return self._deserialize_event(dict(row))
@@ -310,7 +324,7 @@ class SQLiteRepo(ChatRepository):
                 AND json_extract(extra, '$.kind') = 'assistant_delta'
                 AND json_extract(extra, '$.user_request_id') = ?
                 """,
-                (conversation_id, user_request_id)
+                (conversation_id, user_request_id),
             )
 
             # Create final assistant message
@@ -322,15 +336,17 @@ class SQLiteRepo(ChatRepository):
                 model=model,
                 extra={
                     "user_request_id": user_request_id,
-                    "request_id": assistant_req_id
-                }
+                    "request_id": assistant_req_id,
+                },
             )
 
             # Get sequence number and insert
             async with db.execute(
-                ("SELECT COALESCE(MAX(seq), 0) + 1 FROM chat_events "
-                 "WHERE conversation_id = ?"),
-                (conversation_id,)
+                (
+                    "SELECT COALESCE(MAX(seq), 0) + 1 FROM chat_events "
+                    "WHERE conversation_id = ?"
+                ),
+                (conversation_id,),
             ) as cursor:
                 row = await cursor.fetchone()
                 assistant_event.seq = row[0] if row else 1
@@ -340,9 +356,9 @@ class SQLiteRepo(ChatRepository):
             placeholders = ", ".join("?" * len(row_data))
 
             await db.execute(
-                    f"INSERT INTO chat_events ({columns}) VALUES ({placeholders})",
-                    list(row_data.values())
-                )
+                f"INSERT INTO chat_events ({columns}) VALUES ({placeholders})",
+                list(row_data.values()),
+            )
             await db.commit()
 
             return assistant_event
@@ -350,7 +366,7 @@ class SQLiteRepo(ChatRepository):
     async def handle_clear_session(self) -> bool:
         """Clear all conversation data from SQLite database."""
         await self._ensure_initialized()
-        
+
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("DELETE FROM chat_events")
             await db.commit()

@@ -4,6 +4,7 @@ Repository Factory
 
 Factory function to create appropriate repository based on configuration.
 """
+
 from __future__ import annotations
 
 import logging

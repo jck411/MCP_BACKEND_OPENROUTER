@@ -8,6 +8,7 @@ CONFIG: storage.type = "auto_persist" (default)
 PURPOSE: Smart SQLite with auto-cleanup + manual saves
 FEATURES: Background retention, session saving, intelligent cleanup
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -67,8 +68,8 @@ class AutoPersistRepo(SQLiteRepo):
             return
 
         async with self._lock, aiosqlite.connect(self.db_path) as db:
-                # Create saved sessions table
-                await db.execute("""
+            # Create saved sessions table
+            await db.execute("""
                     CREATE TABLE IF NOT EXISTS saved_sessions (
                         id TEXT PRIMARY KEY,
                         conversation_id TEXT NOT NULL,
@@ -80,13 +81,13 @@ class AutoPersistRepo(SQLiteRepo):
                     )
                 """)
 
-                # Create indexes for saved sessions
-                await db.execute("""
+            # Create indexes for saved sessions
+            await db.execute("""
                     CREATE INDEX IF NOT EXISTS idx_saved_sessions_created
                     ON saved_sessions(created_at)
                 """)
 
-                await db.commit()
+            await db.commit()
 
         # Start cleanup task if not already running
         if not self._cleanup_running:
@@ -151,14 +152,17 @@ class AutoPersistRepo(SQLiteRepo):
                 if total_messages > self.max_messages:
                     # Delete oldest messages beyond limit
                     excess = total_messages - self.max_messages
-                    await db.execute("""
+                    await db.execute(
+                        """
                         DELETE FROM chat_events
                         WHERE id IN (
                             SELECT id FROM chat_events
                             ORDER BY created_at ASC
                             LIMIT ?
                         )
-                    """, (excess,))
+                    """,
+                        (excess,),
+                    )
                     cleanup_count += excess
                     logger.info(
                         f"Cleaned up {excess} oldest messages "
@@ -177,20 +181,23 @@ class AutoPersistRepo(SQLiteRepo):
                 if total_sessions > self.max_sessions:
                     # Get oldest conversations to delete
                     excess_sessions = total_sessions - self.max_sessions
-                    async with db.execute("""
+                    async with db.execute(
+                        """
                         SELECT conversation_id, MIN(created_at) as first_message
                         FROM chat_events
                         GROUP BY conversation_id
                         ORDER BY first_message ASC
                         LIMIT ?
-                    """, (excess_sessions,)) as cursor:
+                    """,
+                        (excess_sessions,),
+                    ) as cursor:
                         old_conversations = await cursor.fetchall()
 
                     # Delete messages from oldest conversations
                     for conv_id, _ in old_conversations:
                         await db.execute(
                             "DELETE FROM chat_events WHERE conversation_id = ?",
-                            (conv_id,)
+                            (conv_id,),
                         )
 
                     cleanup_count += excess_sessions
@@ -236,11 +243,14 @@ class AutoPersistRepo(SQLiteRepo):
         # Get session info
         async with aiosqlite.connect(self.db_path) as db:
             # Get session boundaries and message count
-            async with db.execute("""
+            async with db.execute(
+                """
                 SELECT MIN(created_at), MAX(created_at), COUNT(*)
                 FROM chat_events
                 WHERE conversation_id = ?
-            """, (conversation_id,)) as cursor:
+            """,
+                (conversation_id,),
+            ) as cursor:
                 result = await cursor.fetchone()
                 if not result or result[2] == 0:
                     raise ValueError(
@@ -269,24 +279,26 @@ class AutoPersistRepo(SQLiteRepo):
 
             # Save session metadata
             saved_id = str(uuid.uuid4())
-            await db.execute("""
+            await db.execute(
+                """
                 INSERT INTO saved_sessions
                 (id, conversation_id, name, session_start, session_end, message_count)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                saved_id,
-                conversation_id,
-                name,
-                session_start,
-                session_end,
-                message_count,
-            ))
+            """,
+                (
+                    saved_id,
+                    conversation_id,
+                    name,
+                    session_start,
+                    session_end,
+                    message_count,
+                ),
+            )
 
             await db.commit()
 
             logger.info(
-                f"Saved session '{name}' with {message_count} messages "
-                f"(ID: {saved_id})"
+                f"Saved session '{name}' with {message_count} messages (ID: {saved_id})"
             )
             return saved_id
 
@@ -315,10 +327,12 @@ class AutoPersistRepo(SQLiteRepo):
 
         await self._ensure_initialized()
 
-        async with aiosqlite.connect(self.db_path) as db, db.execute(
-            "SELECT conversation_id FROM saved_sessions WHERE id = ?",
-            (saved_id,)
-        ) as cursor:
+        async with (
+            aiosqlite.connect(self.db_path) as db,
+            db.execute(
+                "SELECT conversation_id FROM saved_sessions WHERE id = ?", (saved_id,)
+            ) as cursor,
+        ):
             result = await cursor.fetchone()
             if not result:
                 raise ValueError(f"Saved session {saved_id} not found")
@@ -340,8 +354,8 @@ class AutoPersistRepo(SQLiteRepo):
 
         # Check if we should do a full wipe (every max_sessions clears)
         if (
-            self.max_sessions is not None and
-            self._clear_session_counter >= self.max_sessions
+            self.max_sessions is not None
+            and self._clear_session_counter >= self.max_sessions
         ):
             await self._wipe_all_history_except_saved()
             self._clear_session_counter = 0  # Reset counter after wipe
@@ -376,7 +390,7 @@ class AutoPersistRepo(SQLiteRepo):
                         f"DELETE FROM chat_events WHERE conversation_id NOT IN ("
                         f"{placeholders})"
                     ),
-                    saved_conversation_ids
+                    saved_conversation_ids,
                 )
                 logger.info(
                     f"Wiped all history except "

@@ -57,15 +57,15 @@ class Configuration:
         if not os.path.exists(self._runtime_config_path):
             # Create runtime_config.yaml from defaults on first run
             initial_config = self._default_config.copy()
-            initial_config['_runtime_config'] = {
-                'last_modified': time.time(),
-                'version': 1,
-                'is_runtime_config': True,
-                'default_config_path': 'config.yaml',
-                'created_from_defaults': True
+            initial_config["_runtime_config"] = {
+                "last_modified": time.time(),
+                "version": 1,
+                "is_runtime_config": True,
+                "default_config_path": "config.yaml",
+                "created_from_defaults": True,
             }
 
-            with open(self._runtime_config_path, 'w') as file:
+            with open(self._runtime_config_path, "w") as file:
                 yaml.safe_dump(initial_config, file, default_flow_style=False, indent=2)
 
     def _load_runtime_config(self) -> dict[str, Any]:
@@ -145,9 +145,7 @@ class Configuration:
             except Exception as e:
                 logging.error(f"Error in config change callback: {e}")
 
-    def subscribe_to_changes(
-        self, callback: Callable[[dict[str, Any]], None]
-    ) -> None:
+    def subscribe_to_changes(self, callback: Callable[[dict[str, Any]], None]) -> None:
         """Subscribe to configuration change events.
 
         Args:
@@ -252,14 +250,14 @@ class Configuration:
 
         # Add runtime metadata
         runtime_config = config.copy()
-        runtime_config['_runtime_config'] = {
-            'last_modified': time.time(),
-            'version': current_version + 1,
-            'is_runtime_config': True,
-            'default_config_path': 'config.yaml'
+        runtime_config["_runtime_config"] = {
+            "last_modified": time.time(),
+            "version": current_version + 1,
+            "is_runtime_config": True,
+            "default_config_path": "config.yaml",
         }
 
-        with open(self._runtime_config_path, 'w') as file:
+        with open(self._runtime_config_path, "w") as file:
             yaml.safe_dump(runtime_config, file, default_flow_style=False, indent=2)
 
         # Reload the configuration

@@ -73,6 +73,32 @@ llm:
 - `src/servers_config.json` - MCP server configurations
 - `chat_history.db` - SQLite database for conversation history
 
+## 🛠️ Development
+
+### Code Formatting
+```bash
+# Quick format (ignores line length issues)
+./format.sh
+
+# Full check including line length
+uv run ruff check src/
+
+# Format specific files
+uv run ruff format src/mcp/client.py src/llm/client.py
+```
+
+### Project Structure
+```
+src/
+├── main.py              # Entry point
+├── application.py       # App startup
+├── mcp/                 # MCP client module
+│   └── client.py        # MCPClient class
+├── llm/                 # LLM client module
+│   └── client.py        # LLMClient class
+└── chat/                # Chat orchestration
+```
+
 ## ✅ Features
 - **Full MCP Protocol** - Tools, prompts, resources
 - **High Performance** - SQLite with WAL mode, optimized indexes

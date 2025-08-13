@@ -8,6 +8,7 @@ CONFIG: storage.type = "memory"
 PURPOSE: Development/testing - all data lost on restart
 FEATURES: Fastest performance, no persistence, simple cleanup
 """
+
 from __future__ import annotations
 
 from .models import ChatEvent
@@ -76,14 +77,19 @@ class InMemoryRepo(ChatRepository):
     ) -> str | None:
         events = self._conversations.get(conversation_id, [])
         for event in reversed(events):
-            if (event.type == "assistant_message" and
-                event.extra.get("user_request_id") == user_request_id):
+            if (
+                event.type == "assistant_message"
+                and event.extra.get("user_request_id") == user_request_id
+            ):
                 return event.id
         return None
 
     async def compact_deltas(
-        self, conversation_id: str, user_request_id: str, final_content: str,
-        model: str | None = None
+        self,
+        conversation_id: str,
+        user_request_id: str,
+        final_content: str,
+        model: str | None = None,
     ) -> ChatEvent:
         """Compact delta events into a single assistant_message and remove deltas."""
         events = self._conversations.get(conversation_id, [])
@@ -96,10 +102,13 @@ class InMemoryRepo(ChatRepository):
 
         # Remove delta events
         self._conversations[conversation_id] = [
-            ev for ev in events
-            if not (ev.type == "meta" and
-                   ev.extra.get("kind") == "assistant_delta" and
-                   ev.extra.get("user_request_id") == user_request_id)
+            ev
+            for ev in events
+            if not (
+                ev.type == "meta"
+                and ev.extra.get("kind") == "assistant_delta"
+                and ev.extra.get("user_request_id") == user_request_id
+            )
         ]
 
         # Create final assistant message
@@ -109,10 +118,7 @@ class InMemoryRepo(ChatRepository):
             role="assistant",
             content=final_content,
             model=model,
-            extra={
-                "user_request_id": user_request_id,
-                "request_id": assistant_req_id
-            }
+            extra={"user_request_id": user_request_id, "request_id": assistant_req_id},
         )
 
         await self.add_event(assistant_event)

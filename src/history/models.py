@@ -4,6 +4,7 @@ Chat History Data Models
 
 This module contains all Pydantic models for the chat history system.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -20,10 +21,12 @@ Role = Literal["system", "user", "assistant", "tool"]
 
 class StorageMode(str, Enum):
     """Available storage modes for chat history."""
+
     AUTO_PERSIST = "auto_persist"
 
 
 # ---------- Content models ----------
+
 
 class TextPart(BaseModel):
     type: Literal["text"] = "text"
@@ -39,9 +42,8 @@ class ToolCall(BaseModel):
     arguments: dict[str, Any]
 
 
-
-
 # ---------- Main event model ----------
+
 
 class ChatEvent(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -55,7 +57,7 @@ class ChatEvent(BaseModel):
         "tool_call",
         "tool_result",
         "system_update",
-        "meta"
+        "meta",
     ]
     role: Role | None = None
     content: str | list[Part] | None = None

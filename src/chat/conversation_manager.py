@@ -50,18 +50,24 @@ class ConversationManager:
             - Creates a ChatEvent for the user message and persists it to repository
             - Computes and caches token count for the user message
         """
-        logger.debug("→ Repository: checking for existing response for request_id=%s", request_id)
-        
+        logger.debug(
+            "→ Repository: checking for existing response for request_id=%s", request_id
+        )
+
         # Check for existing response first
         existing_response = await self.get_existing_assistant_response(
             conversation_id, request_id
         )
         if existing_response:
-            logger.info("← Repository: cached response found for request_id=%s", request_id)
+            logger.info(
+                "← Repository: cached response found for request_id=%s", request_id
+            )
             return False
 
         # Persist user message
-        logger.info("→ Repository: persisting user message for request_id=%s", request_id)
+        logger.info(
+            "→ Repository: persisting user message for request_id=%s", request_id
+        )
         user_ev = ChatEvent(
             conversation_id=conversation_id,
             seq=0,  # Will be assigned by repository
@@ -73,13 +79,17 @@ class ConversationManager:
         was_added = await self.repo.add_event(user_ev)
 
         if not was_added:
-            logger.debug("→ Repository: duplicate message detected, re-checking for response")
+            logger.debug(
+                "→ Repository: duplicate message detected, re-checking for response"
+            )
             # Check for existing response again after duplicate detection
             existing_response = await self.get_existing_assistant_response(
                 conversation_id, request_id
             )
             if existing_response:
-                logger.info("← Repository: existing response found after duplicate detection")
+                logger.info(
+                    "← Repository: existing response found after duplicate detection"
+                )
                 return False
 
         logger.info("← Repository: user message persisted successfully")
@@ -96,7 +106,9 @@ class ConversationManager:
             events = await self.repo.get_events(conversation_id)
             for event in events:
                 if event.id == existing_assistant_id:
-                    logger.debug("Found cached assistant response: event_id=%s", event.id)
+                    logger.debug(
+                        "Found cached assistant response: event_id=%s", event.id
+                    )
                     return event
         return None
 
@@ -105,17 +117,20 @@ class ConversationManager:
     ) -> list[dict[str, Any]]:
         """
         Build conversation history from repository.
-        
+
         Creates a conversation array suitable for LLM APIs, including:
         - System prompt as first message
         - Historical user/assistant messages
         - Tool result messages with proper formatting
         - Current user message
         """
-        logger.debug("→ Repository: fetching conversation history for conversation_id=%s", conversation_id)
-        
+        logger.debug(
+            "→ Repository: fetching conversation history for conversation_id=%s",
+            conversation_id,
+        )
+
         events = await self.repo.get_conversation_history(conversation_id, limit=50)
-        
+
         logger.debug("← Repository: loaded %d conversation events", len(events))
 
         # Build conversation with system prompt and recent history (dynamically generated)
@@ -132,29 +147,35 @@ class ConversationManager:
                 and event.extra
                 and "tool_call_id" in event.extra
             ):
-                conv.append({
-                    "role": "tool",
-                    "tool_call_id": event.extra["tool_call_id"],
-                    "content": str(event.content or "")
-                })
+                conv.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": event.extra["tool_call_id"],
+                        "content": str(event.content or ""),
+                    }
+                )
 
         # Add current user message
         conv.append({"role": "user", "content": user_msg})
-        
-        logger.debug("Built conversation with %d messages (including system prompt)", len(conv))
+
+        logger.debug(
+            "Built conversation with %d messages (including system prompt)", len(conv)
+        )
         return conv
 
     async def persist_assistant_message(
-        self, 
-        conversation_id: str, 
+        self,
+        conversation_id: str,
         request_id: str,
-        content: str, 
+        content: str,
         model: str,
-        provider: str = "unknown"
+        provider: str = "unknown",
     ) -> ChatEvent:
         """Persist final assistant message to repository."""
-        logger.info("→ Repository: persisting assistant message for request_id=%s", request_id)
-        
+        logger.info(
+            "→ Repository: persisting assistant message for request_id=%s", request_id
+        )
+
         assistant_ev = ChatEvent(
             conversation_id=conversation_id,
             seq=0,  # Will be assigned by repository
@@ -165,8 +186,8 @@ class ConversationManager:
             model=model,
             extra={"user_request_id": request_id},
         )
-        
+
         await self.repo.add_event(assistant_ev)
         logger.info("← Repository: assistant message persisted successfully")
-        
+
         return assistant_ev
