@@ -10,11 +10,21 @@ This module keeps the simple case simple. Code duplication with streaming
 is acceptable since they have different complexity levels.
 """
 
+from __future__ import annotations
+
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from mcp import types
 
 from src.history import ChatEvent
+
+if TYPE_CHECKING:
+    from src.chat.resource_loader import ResourceLoader
+    from src.chat.tool_executor import ToolExecutor
+    from src.clients import LLMClient
+    from src.history.repository import ChatRepository
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +34,10 @@ class SimpleChatHandler:
 
     def __init__(
         self,
-        llm_client,
-        tool_executor,
-        repo,
-        resource_loader,
+        llm_client: LLMClient,
+        tool_executor: ToolExecutor,
+        repo: ChatRepository,
+        resource_loader: ResourceLoader,
         chat_conf: dict[str, Any],
     ):
         self.llm_client = llm_client
@@ -83,15 +93,15 @@ class SimpleChatHandler:
         )
 
         # Generate response
-        response = await self._generate_response_with_tools(conv, tools_payload)
+        content, model = await self.generate_assistant_response(conv, tools_payload)
 
         # Persist assistant message
-        assistant_ev = await self.repo.persist_assistant_message(
+        return await self.repo.persist_assistant_message(
             conversation_id,
             request_id,
-            response["content"],
-            response["model"],
-            response.get("provider", "unknown"),
+            content,
+            model,
+            self.llm_client.provider,
         )
 
     async def generate_assistant_response(
@@ -119,7 +129,7 @@ class SimpleChatHandler:
         hops = 0
         while calls := assistant_msg.get("tool_calls"):
             should_stop, warning_msg = self.tool_executor.check_tool_hop_limit(hops)
-            if should_stop:
+            if should_stop and warning_msg:
                 logger.info("Tool hop limit reached, appending warning")
                 assistant_full_text += "\n\n" + warning_msg
                 break
@@ -138,14 +148,18 @@ class SimpleChatHandler:
             for call in calls:
                 tool_name = call["function"]["name"]
                 try:
-                    args = json.loads(call["function"]["arguments"] or "{}")
+                    args: dict[str, Any] = json.loads(
+                        call["function"]["arguments"] or "{}"
+                    )
                 except json.JSONDecodeError as e:
                     logger.warning("Malformed JSON arguments for %s: %s", tool_name, e)
                     args = {}
 
                 logger.info("→ MCP[%s]: executing tool", tool_name)
-                result = await self.tool_executor.tool_mgr.call_tool(tool_name, args)
-                content = self.tool_executor.pluck_content(result)
+                result: types.CallToolResult = (
+                    await self.tool_executor.tool_mgr.call_tool(tool_name, args)
+                )
+                content: str = self.tool_executor.pluck_content(result)
                 logger.info(
                     "← MCP[%s]: success, content length: %d", tool_name, len(content)
                 )
@@ -176,7 +190,7 @@ class SimpleChatHandler:
         return assistant_full_text, model
 
     def log_llm_reply(self, reply: dict[str, Any], context: str) -> None:
-        """Log LLM reply if configured, including thinking content for reasoning models."""
+        """Log LLM reply if configured, including thinking content for reasoning."""
         logging_config = self.chat_conf.get("logging", {})
         if not logging_config.get("llm_replies", False):
             return

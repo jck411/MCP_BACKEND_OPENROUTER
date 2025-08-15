@@ -15,8 +15,8 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
-
 from mcp import McpError, types
+
 from src.config import Configuration
 
 

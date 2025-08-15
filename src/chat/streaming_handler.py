@@ -14,12 +14,20 @@ are hard to debug, so this isolation makes it easier to add detailed logging
 for what's sent to frontend.
 """
 
+from __future__ import annotations
+
 import logging
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.chat.models import ChatMessage, ToolCallContext
 from src.history import ChatEvent
+
+if TYPE_CHECKING:
+    from src.chat.resource_loader import ResourceLoader
+    from src.chat.tool_executor import ToolExecutor
+    from src.clients import LLMClient
+    from src.history.repository import ChatRepository
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +37,10 @@ class StreamingHandler:
 
     def __init__(
         self,
-        llm_client,
-        tool_executor,
-        repo,
-        resource_loader,
+        llm_client: LLMClient,
+        tool_executor: ToolExecutor,
+        repo: ChatRepository,
+        resource_loader: ResourceLoader,
         chat_conf: dict[str, Any],
     ):
         self.llm_client = llm_client
@@ -126,7 +134,7 @@ class StreamingHandler:
 
         while context.assistant_msg.get("tool_calls"):
             should_stop, warning_msg = self.tool_executor.check_tool_hop_limit(hops)
-            if should_stop:
+            if should_stop and warning_msg:
                 context.full_content += "\n\n" + warning_msg
                 logger.info("→ Frontend: tool hop limit warning")
                 yield ChatMessage(
@@ -351,14 +359,14 @@ class StreamingHandler:
             - May write to application logs if logging is enabled
             - Does not modify the assistant_msg or any other state
         """
-        reply_data = {
+        reply_data: dict[str, Any] = {
             "message": assistant_msg,
             "model": self.llm_client.config.get("model", ""),
         }
         self.log_llm_reply(reply_data, "Streaming initial response")
 
     def log_llm_reply(self, reply: dict[str, Any], context: str) -> None:
-        """Log LLM reply if configured, including thinking content for reasoning models."""
+        """Log LLM reply if configured, including thinking content for reasoning."""
         logging_config = self.chat_conf.get("logging", {})
         if not logging_config.get("llm_replies", False):
             return

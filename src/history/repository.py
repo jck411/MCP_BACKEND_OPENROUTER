@@ -11,27 +11,6 @@ from typing import Protocol
 
 from .models import ChatEvent
 
-# ---------- Utility functions ----------
-
-# Context filter for LLM conversation history
-_CONTEXT_TYPES = {"user_message", "assistant_message", "tool_result"}
-
-
-def _visible_to_llm(ev: ChatEvent) -> bool:
-    """
-    Determine if a chat event should be included in LLM conversation context.
-
-    Includes:
-    - user_message: Direct user inputs
-    - assistant_message: LLM responses
-    - tool_result: Results from tool executions
-    - system_update: Only when explicitly marked as visible_to_model=True
-    """
-    if ev.type in _CONTEXT_TYPES:
-        return True
-    return ev.type == "system_update" and ev.extra.get("visible_to_model", False)
-
-
 # ---------- Repository interface ----------
 
 

@@ -20,10 +20,9 @@ import sys
 from contextlib import AsyncExitStack
 from typing import Any
 
-from pydantic import AnyUrl
-
 from mcp import ClientSession, McpError, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
+from pydantic import AnyUrl
 
 
 class MCPClient:

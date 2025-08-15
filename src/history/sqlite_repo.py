@@ -135,7 +135,7 @@ class SQLiteRepo(ChatRepository):
         if row["tool_calls"]:
             tool_calls = [ToolCall(**tc) for tc in json.loads(row["tool_calls"])]
 
-        extra = json.loads(row["extra"]) if row["extra"] else {}
+        extra: dict[str, Any] = json.loads(row["extra"]) if row["extra"] else {}
         raw = json.loads(row["raw"]) if row["raw"] else None
 
         return ChatEvent(

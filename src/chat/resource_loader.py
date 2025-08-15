@@ -11,9 +11,16 @@ Resource loading fails often when MCP servers are down, so this module
 is isolated for better error handling and logging.
 """
 
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 from mcp import types
+
+if TYPE_CHECKING:
+    from src.config import Configuration
+    from src.tool_schema_manager import ToolSchemaManager
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +28,9 @@ logger = logging.getLogger(__name__)
 class ResourceLoader:
     """Handles resource loading and system prompt construction."""
 
-    def __init__(self, tool_mgr, configuration):
+    def __init__(
+        self, tool_mgr: ToolSchemaManager | None, configuration: Configuration
+    ):
         self.tool_mgr = tool_mgr
         self.configuration = (
             configuration  # Use Configuration object instead of static dict
@@ -55,10 +64,10 @@ class ResourceLoader:
         logger.debug("→ Resources: checking resource availability")
 
         # Get all registered resources from the tool manager
-        all_resource_uris = self.tool_mgr.list_available_resources()
+        all_resource_uris: list[str] = self.tool_mgr.list_available_resources()
 
         # Filter to only include resources that are actually available
-        available_uris = []
+        available_uris: list[str] = []
         for uri in all_resource_uris:
             try:
                 resource_result = await self.tool_mgr.read_resource(uri)
@@ -109,22 +118,25 @@ class ResourceLoader:
                 base += f"\n\n**{name}** ({uri}):"
 
                 for content in content_info:
-                    if isinstance(content, types.TextResourceContents):
-                        lines = content.text.strip().split("\n")
-                        for line in lines:
-                            base += f"\n{line}"
-                    elif isinstance(content, types.BlobResourceContents):
-                        base += f"\n[Binary content: {len(content.blob)} bytes]"
-                    else:
-                        base += f"\n[{type(content).__name__} available]"
+                    content_item: (
+                        types.TextResourceContents | types.BlobResourceContents
+                    ) = content
+                    match content_item:
+                        case types.TextResourceContents():
+                            lines = content_item.text.strip().split("\n")
+                            for line in lines:
+                                base += f"\n{line}"
+                        case types.BlobResourceContents():
+                            blob_size = len(content_item.blob)
+                            base += f"\n[Binary content: {blob_size} bytes]"
 
         # Add available prompts section
-        prompt_names = self.tool_mgr.list_available_prompts()
+        prompt_names: list[str] = self.tool_mgr.list_available_prompts()
         if prompt_names:
             logger.info(
                 "→ Resources: including %d prompts in system prompt", len(prompt_names)
             )
-            prompt_list = []
+            prompt_list: list[str] = []
             for name in prompt_names:
                 pinfo = self.tool_mgr.get_prompt_info(name)
                 if pinfo:
@@ -175,7 +187,7 @@ class ResourceLoader:
                 # Log the error but don't include in system prompt
                 # This prevents the LLM from being told about broken resources
                 logger.warning(
-                    "→ Resources: %s is unavailable and excluded from system prompt: %s",
+                    "→ Resources: %s is unavailable and excluded from prompt: %s",
                     uri,
                     e,
                 )
@@ -194,7 +206,9 @@ class ResourceLoader:
 
         return available_resources
 
-    async def apply_prompt(self, name: str, args: dict[str, str]) -> list[dict]:
+    async def apply_prompt(
+        self, name: str, args: dict[str, str]
+    ) -> list[dict[str, str]]:
         """Apply a parameterized prompt and return conversation messages."""
         if not self.tool_mgr:
             raise RuntimeError("Tool manager not initialized")
@@ -202,8 +216,8 @@ class ResourceLoader:
         logger.info("→ Resources: applying prompt '%s' with args: %s", name, args)
 
         try:
-            res = await self.tool_mgr.get_prompt(name, args)
-            messages = [
+            res: types.GetPromptResult = await self.tool_mgr.get_prompt(name, args)
+            messages: list[dict[str, str]] = [
                 {"role": m.role, "content": m.content.text}
                 for m in res.messages
                 if isinstance(m.content, types.TextContent)

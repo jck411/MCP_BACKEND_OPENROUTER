@@ -90,7 +90,7 @@ class ChatOrchestrator:
             )
 
             # Filter out only successfully connected clients
-            connected_clients = []
+            connected_clients: list[Any] = []
             for i, result in enumerate(connection_results):
                 if isinstance(result, Exception):
                     logger.warning(
@@ -272,7 +272,9 @@ class ChatOrchestrator:
         logger.info("← Orchestrator: completed non-streaming chat processing")
         return result
 
-    async def apply_prompt(self, name: str, args: dict[str, str]) -> list[dict]:
+    async def apply_prompt(
+        self, name: str, args: dict[str, str]
+    ) -> list[dict[str, str]]:
         """Apply a parameterized prompt and return conversation messages."""
         await self._ready.wait()
 
@@ -280,7 +282,9 @@ class ChatOrchestrator:
             raise RuntimeError("Resource loader not initialized")
 
         logger.info("→ Orchestrator: applying prompt '%s'", name)
-        result = await self.resource_loader.apply_prompt(name, args)
+        result: list[dict[str, str]] = await self.resource_loader.apply_prompt(
+            name, args
+        )
         logger.info("← Orchestrator: prompt applied successfully")
         return result
 

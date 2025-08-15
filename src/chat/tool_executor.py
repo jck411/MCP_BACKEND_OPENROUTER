@@ -11,11 +11,17 @@ This module is prone to breaking when MCP servers change, so it's isolated
 for better error handling and logging of MCP server interactions.
 """
 
+from __future__ import annotations
+
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from mcp import types
+
+if TYPE_CHECKING:
+    from src.config import Configuration
+    from src.tool_schema_manager import ToolSchemaManager
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +29,11 @@ logger = logging.getLogger(__name__)
 class ToolExecutor:
     """Handles tool execution and MCP client interactions."""
 
-    def __init__(self, tool_mgr, configuration):
+    def __init__(
+        self,
+        tool_mgr: ToolSchemaManager,
+        configuration: Configuration,
+    ):
         self.tool_mgr = tool_mgr
         self.configuration = configuration
 
@@ -89,13 +99,12 @@ class ToolExecutor:
                     if "name_parts" not in current_tool_calls[idx]["function"]:
                         current_tool_calls[idx]["function"]["name_parts"] = []
                     # Accumulate this name fragment
-                    current_tool_calls[idx]["function"]["name_parts"].append(
-                        func["name"]
+                    name_parts = cast(
+                        list[str], current_tool_calls[idx]["function"]["name_parts"]
                     )
+                    name_parts.append(func["name"])
                     # Rebuild complete name from all parts
-                    current_tool_calls[idx]["function"]["name"] = "".join(
-                        current_tool_calls[idx]["function"]["name_parts"]
-                    )
+                    current_tool_calls[idx]["function"]["name"] = "".join(name_parts)
                     logger.debug("Tool call %d: accumulated name fragment", idx)
 
                 # Handle function arguments accumulation (partial JSON strings)
@@ -104,12 +113,13 @@ class ToolExecutor:
                     if "args_parts" not in current_tool_calls[idx]["function"]:
                         current_tool_calls[idx]["function"]["args_parts"] = []
                     # Accumulate this argument fragment
-                    current_tool_calls[idx]["function"]["args_parts"].append(
-                        func["arguments"]
+                    args_parts = cast(
+                        list[str], current_tool_calls[idx]["function"]["args_parts"]
                     )
+                    args_parts.append(func["arguments"])
                     # Rebuild complete arguments JSON from all parts
                     current_tool_calls[idx]["function"]["arguments"] = "".join(
-                        current_tool_calls[idx]["function"]["args_parts"]
+                        args_parts
                     )
                     logger.debug("Tool call %d: accumulated argument fragment", idx)
 
@@ -155,7 +165,7 @@ class ToolExecutor:
 
             # Parse JSON arguments with defensive handling for malformed JSON
             try:
-                args = json.loads(call["function"]["arguments"] or "{}")
+                args: dict[str, Any] = json.loads(call["function"]["arguments"] or "{}")
                 logger.debug("→ MCP[%s]: calling with args: %s", tool_name, args)
             except json.JSONDecodeError as e:
                 logger.warning(
