@@ -18,7 +18,6 @@ from pydantic import BaseModel, ConfigDict
 from src.config import Configuration
 from src.history import ChatEvent
 
-from .conversation_manager import ConversationManager
 from .models import ChatMessage
 from .resource_loader import ResourceLoader
 from .simple_chat_handler import SimpleChatHandler
@@ -67,7 +66,6 @@ class ChatOrchestrator:
         # Core components
         self.tool_mgr: ToolSchemaManager | None = None
         self.resource_loader: ResourceLoader | None = None
-        self.conversation_manager: ConversationManager | None = None
         self.tool_executor: ToolExecutor | None = None
         self.streaming_handler: StreamingHandler | None = None
         self.simple_chat_handler: SimpleChatHandler | None = None
@@ -126,13 +124,6 @@ class ChatOrchestrator:
             system_prompt = await self.resource_loader.initialize()
             logger.info("← Orchestrator: resource loader ready")
 
-            # Initialize conversation manager
-            logger.info("→ Orchestrator: initializing conversation manager")
-            self.conversation_manager = ConversationManager(
-                self.repo, self.resource_loader
-            )
-            logger.info("← Orchestrator: conversation manager ready")
-
             # Initialize tool executor
             logger.info("→ Orchestrator: initializing tool executor")
             self.tool_executor = ToolExecutor(self.tool_mgr, self.configuration)
@@ -143,14 +134,15 @@ class ChatOrchestrator:
             self.streaming_handler = StreamingHandler(
                 self.llm_client,
                 self.tool_executor,
-                self.conversation_manager,
                 self.repo,
+                self.resource_loader,
                 self.chat_conf,
             )
             self.simple_chat_handler = SimpleChatHandler(
                 self.llm_client,
                 self.tool_executor,
-                self.conversation_manager,
+                self.repo,
+                self.resource_loader,
                 self.chat_conf,
             )
             logger.info("← Orchestrator: handlers ready")
@@ -189,7 +181,6 @@ class ChatOrchestrator:
         if not all(
             [
                 self.streaming_handler,
-                self.conversation_manager,
                 self.tool_executor,
                 self.tool_mgr,
             ]
@@ -198,7 +189,7 @@ class ChatOrchestrator:
 
         # Type assertions for mypy/pylance
         assert self.streaming_handler is not None
-        assert self.conversation_manager is not None
+        assert self.resource_loader is not None
         assert self.tool_executor is not None
         assert self.tool_mgr is not None
 
@@ -210,10 +201,8 @@ class ChatOrchestrator:
         )
 
         # Handle idempotency and user message persistence
-        should_continue = (
-            await self.conversation_manager.handle_user_message_persistence(
-                conversation_id, user_msg, request_id
-            )
+        should_continue = await self.repo.handle_user_message_persistence(
+            conversation_id, user_msg, request_id
         )
         if not should_continue:
             logger.info("→ Orchestrator: returning cached response")
@@ -224,8 +213,9 @@ class ChatOrchestrator:
             return
 
         # Build conversation and generate response
-        conv = await self.conversation_manager.build_conversation_history(
-            conversation_id, user_msg
+        system_prompt = await self.resource_loader.make_system_prompt()
+        conv = await self.repo.build_llm_conversation(
+            conversation_id, user_msg, system_prompt
         )
         tools_payload = self.tool_mgr.get_openai_tools()
 
@@ -255,7 +245,6 @@ class ChatOrchestrator:
         if not all(
             [
                 self.simple_chat_handler,
-                self.conversation_manager,
                 self.tool_executor,
                 self.tool_mgr,
             ]
@@ -264,7 +253,7 @@ class ChatOrchestrator:
 
         # Type assertions for mypy/pylance
         assert self.simple_chat_handler is not None
-        assert self.conversation_manager is not None
+        assert self.resource_loader is not None
         assert self.tool_executor is not None
         assert self.tool_mgr is not None
 

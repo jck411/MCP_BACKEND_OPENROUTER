@@ -371,3 +371,139 @@ class SQLiteRepo(ChatRepository):
             await db.execute("DELETE FROM chat_events")
             await db.commit()
             return True
+
+    async def handle_user_message_persistence(
+        self, conversation_id: str, user_msg: str, request_id: str
+    ) -> bool:
+        """Handle user message persistence with idempotency checks."""
+        logger.debug(
+            "→ Repository: checking for existing response for request_id=%s", request_id
+        )
+
+        # Check for existing response first
+        existing_response = await self.get_existing_assistant_response(
+            conversation_id, request_id
+        )
+        if existing_response:
+            logger.info(
+                "← Repository: cached response found for request_id=%s", request_id
+            )
+            return False
+
+        # Persist user message
+        logger.info(
+            "→ Repository: persisting user message for request_id=%s", request_id
+        )
+        user_ev = ChatEvent(
+            conversation_id=conversation_id,
+            seq=0,  # Will be assigned by repository
+            type="user_message",
+            role="user",
+            content=user_msg,
+            extra={"request_id": request_id},
+        )
+        was_added = await self.add_event(user_ev)
+
+        if not was_added:
+            logger.debug(
+                "→ Repository: duplicate message detected, re-checking for response"
+            )
+            # Check for existing response again after duplicate detection
+            existing_response = await self.get_existing_assistant_response(
+                conversation_id, request_id
+            )
+            if existing_response:
+                logger.info(
+                    "← Repository: existing response found after duplicate detection"
+                )
+                return False
+
+        logger.info("← Repository: user message persisted successfully")
+        return True
+
+    async def get_existing_assistant_response(
+        self, conversation_id: str, request_id: str
+    ) -> ChatEvent | None:
+        """Get existing assistant response for a request_id if it exists."""
+        existing_assistant_id = await self.get_last_assistant_reply_id(
+            conversation_id, request_id
+        )
+        if existing_assistant_id:
+            events = await self.get_events(conversation_id)
+            for event in events:
+                if event.id == existing_assistant_id:
+                    logger.debug(
+                        "Found cached assistant response: event_id=%s", event.id
+                    )
+                    return event
+        return None
+
+    async def build_llm_conversation(
+        self, conversation_id: str, user_msg: str, system_prompt: str
+    ) -> list[dict[str, str]]:
+        """Build conversation history in LLM format."""
+        logger.debug(
+            "→ Repository: fetching conversation history for conversation_id=%s",
+            conversation_id,
+        )
+
+        events = await self.get_conversation_history(conversation_id, limit=50)
+        logger.debug("← Repository: loaded %d conversation events", len(events))
+
+        # Build conversation with system prompt and recent history
+        conv: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+
+        for event in events:
+            if event.type == "user_message":
+                conv.append({"role": "user", "content": str(event.content or "")})
+            elif event.type == "assistant_message":
+                conv.append({"role": "assistant", "content": str(event.content or "")})
+            elif (
+                event.type == "tool_result"
+                and event.extra
+                and "tool_call_id" in event.extra
+            ):
+                conv.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": event.extra["tool_call_id"],
+                        "content": str(event.content or ""),
+                    }
+                )
+
+        # Add current user message
+        conv.append({"role": "user", "content": user_msg})
+
+        logger.debug(
+            "Built conversation with %d messages (including system prompt)", len(conv)
+        )
+        return conv
+
+    async def persist_assistant_message(
+        self,
+        conversation_id: str,
+        request_id: str,
+        content: str,
+        model: str,
+        provider: str = "unknown",
+    ) -> ChatEvent:
+        """Persist final assistant message to repository."""
+        logger.info(
+            "→ Repository: persisting assistant message for request_id=%s", request_id
+        )
+
+        assistant_ev = ChatEvent(
+            conversation_id=conversation_id,
+            seq=0,  # Will be assigned by repository
+            type="assistant_message",
+            role="assistant",
+            content=content,
+            provider=provider,
+            model=model,
+            extra={"user_request_id": request_id},
+        )
+
+        await self.add_event(assistant_ev)
+        logger.info("← Repository: assistant message persisted successfully")
+
+        return assistant_ev

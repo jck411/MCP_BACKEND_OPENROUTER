@@ -31,14 +31,14 @@ class StreamingHandler:
         self,
         llm_client,
         tool_executor,
-        conversation_manager,
         repo,
+        resource_loader,
         chat_conf: dict[str, Any],
     ):
         self.llm_client = llm_client
         self.tool_executor = tool_executor
-        self.conversation_manager = conversation_manager
         self.repo = repo
+        self.resource_loader = resource_loader
         self.chat_conf = chat_conf
 
     def validate_streaming_support(self) -> None:
@@ -312,10 +312,8 @@ class StreamingHandler:
             "→ Repository: retrieving cached response for request_id=%s", request_id
         )
 
-        existing_response = (
-            await self.conversation_manager.get_existing_assistant_response(
-                conversation_id, request_id
-            )
+        existing_response = await self.repo.get_existing_assistant_response(
+            conversation_id, request_id
         )
         if existing_response and existing_response.content:
             content_str = (

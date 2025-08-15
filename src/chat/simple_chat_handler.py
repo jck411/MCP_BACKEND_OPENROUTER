@@ -23,11 +23,17 @@ class SimpleChatHandler:
     """Handles non-streaming chat operations."""
 
     def __init__(
-        self, llm_client, tool_executor, conversation_manager, chat_conf: dict[str, Any]
+        self,
+        llm_client,
+        tool_executor,
+        repo,
+        resource_loader,
+        chat_conf: dict[str, Any],
     ):
         self.llm_client = llm_client
         self.tool_executor = tool_executor
-        self.conversation_manager = conversation_manager
+        self.repo = repo
+        self.resource_loader = resource_loader
         self.chat_conf = chat_conf
 
     async def chat_once(
@@ -49,58 +55,44 @@ class SimpleChatHandler:
         logger.info("Starting non-streaming chat for request_id=%s", request_id)
 
         # Check for existing response to prevent double-billing
-        existing_response = (
-            await self.conversation_manager.get_existing_assistant_response(
-                conversation_id, request_id
-            )
+        existing_response = await self.repo.get_existing_assistant_response(
+            conversation_id, request_id
         )
         if existing_response:
-            logger.info(
-                "← Repository: returning cached response for request_id=%s", request_id
-            )
+            logger.debug("Found cached response, returning without invoking LLM")
             return existing_response
 
-        # Handle user message persistence
-        should_continue = (
-            await self.conversation_manager.handle_user_message_persistence(
-                conversation_id, user_msg, request_id
-            )
+        # Handle user message persistence (handles idempotency internally)
+        should_continue = await self.repo.handle_user_message_persistence(
+            conversation_id, user_msg, request_id
         )
-
         if not should_continue:
-            # Check again for existing response after idempotency handling
-            existing_response = (
-                await self.conversation_manager.get_existing_assistant_response(
-                    conversation_id, request_id
-                )
+            # Race condition: duplicate request resolved after we checked
+            existing_response = await self.repo.get_existing_assistant_response(
+                conversation_id, request_id
             )
             if existing_response:
-                logger.info(
-                    "← Repository: returning existing response after idempotency check"
-                )
+                logger.debug("Race condition resolved, returning cached response")
                 return existing_response
 
-        # Build conversation history from repository
-        conv = await self.conversation_manager.build_conversation_history(
-            conversation_id, user_msg
+        # Build conversation history
+        logger.debug("Building conversation history for request_id=%s", request_id)
+        system_prompt = await self.resource_loader.make_system_prompt()
+        conv = await self.repo.build_llm_conversation(
+            conversation_id, user_msg, system_prompt
         )
 
-        # Generate assistant response
-        (assistant_full_text, model) = await self.generate_assistant_response(
-            conv, tools_payload
-        )
+        # Generate response
+        response = await self._generate_response_with_tools(conv, tools_payload)
 
-        # Persist assistant message and reference to user request
-        assistant_ev = await self.conversation_manager.persist_assistant_message(
-            conversation_id=conversation_id,
-            request_id=request_id,
-            content=assistant_full_text,
-            model=model,
-            provider=self.llm_client.config.get("provider", "unknown"),
+        # Persist assistant message
+        assistant_ev = await self.repo.persist_assistant_message(
+            conversation_id,
+            request_id,
+            response["content"],
+            response["model"],
+            response.get("provider", "unknown"),
         )
-
-        logger.info("Completed non-streaming chat for request_id=%s", request_id)
-        return assistant_ev
 
     async def generate_assistant_response(
         self, conv: list[dict[str, Any]], tools_payload: list[dict[str, Any]]

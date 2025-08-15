@@ -67,3 +67,38 @@ class ChatRepository(Protocol):
     ) -> ChatEvent: ...
 
     async def handle_clear_session(self) -> bool: ...
+
+    async def handle_user_message_persistence(
+        self, conversation_id: str, user_msg: str, request_id: str
+    ) -> bool:
+        """
+        Handle user message persistence with idempotency checks.
+
+        Returns:
+            True if processing should continue (new request), False if response
+            already exists (cached response should be returned)
+        """
+        ...
+
+    async def get_existing_assistant_response(
+        self, conversation_id: str, request_id: str
+    ) -> ChatEvent | None:
+        """Get existing assistant response for a request_id if it exists."""
+        ...
+
+    async def build_llm_conversation(
+        self, conversation_id: str, user_msg: str, system_prompt: str
+    ) -> list[dict[str, str]]:
+        """Build conversation history in LLM format."""
+        ...
+
+    async def persist_assistant_message(
+        self,
+        conversation_id: str,
+        request_id: str,
+        content: str,
+        model: str,
+        provider: str = "unknown",
+    ) -> ChatEvent:
+        """Persist final assistant message to repository."""
+        ...
