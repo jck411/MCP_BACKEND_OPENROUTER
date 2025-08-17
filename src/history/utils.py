@@ -13,7 +13,7 @@ import os
 import uuid
 
 from .models import ChatEvent, ToolCall
-from .repository import ChatRepository, _visible_to_llm
+from .repository import ChatRepository, visible_to_llm
 from .sqlite_repo import SQLiteRepo
 
 logger = logging.getLogger(__name__)
@@ -81,7 +81,7 @@ async def demo_basic_storage():
     logger.info("\n=== LLM Context (filtered) ===")
     context_events = await repo.get_conversation_history(conv_id)
     for ev in context_events:
-        visible = _visible_to_llm(ev)
+        visible = visible_to_llm(ev)
         logger.info(f"- {ev.type} {ev.role} visible_to_llm={visible}")
 
     # Cleanup test database

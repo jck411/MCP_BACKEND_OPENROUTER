@@ -11,6 +11,27 @@ from typing import Protocol
 
 from .models import ChatEvent
 
+
+def visible_to_llm(event: ChatEvent) -> bool:
+    """
+    Check if an event should be visible to the LLM.
+
+    Args:
+        event: The ChatEvent to check
+
+    Returns:
+        True if the event should be included in LLM context
+    """
+    # Core event types that are always visible to LLM
+    _CONTEXT_TYPES = {"user_message", "assistant_message", "tool_result"}
+
+    if event.type in _CONTEXT_TYPES:
+        return True
+
+    # System updates are visible only if explicitly marked
+    return event.type == "system_update" and event.extra.get("visible_to_model", False)
+
+
 # ---------- Repository interface ----------
 
 

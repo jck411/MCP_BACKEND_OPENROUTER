@@ -15,7 +15,7 @@ import logging
 from typing import Any
 
 from .models import ChatEvent
-from .repository import ChatRepository
+from .repository import ChatRepository, visible_to_llm
 
 logger = logging.getLogger(__name__)
 
@@ -66,17 +66,8 @@ class InMemoryRepo(ChatRepository):
     ) -> list[ChatEvent]:
         """Get conversation history visible to LLM."""
         events = await self.get_events(conversation_id, limit=limit)
-        # Filter for events visible to LLM
-        _CONTEXT_TYPES = {"user_message", "assistant_message", "tool_result"}
-
-        def _visible_to_llm(ev: ChatEvent) -> bool:
-            if ev.type in _CONTEXT_TYPES:
-                return True
-            return ev.type == "system_update" and ev.extra.get(
-                "visible_to_model", False
-            )
-
-        return [ev for ev in events if _visible_to_llm(ev)]
+        # Filter for events visible to LLM using shared utility function
+        return [ev for ev in events if visible_to_llm(ev)]
 
     async def list_conversations(self) -> list[str]:
         return list(self._conversations.keys())
