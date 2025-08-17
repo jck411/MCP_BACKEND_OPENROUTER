@@ -37,6 +37,15 @@ wheels = [
 ]
 
 [[package]]
+name = "asyncinotify"
+version = "4.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7b/9d/a973f823c0927bc4822392f949c561eee831109c004ce1cf639c6e4b61a4/asyncinotify-4.2.1.tar.gz", hash = "sha256:8078b0b0d81c19043141ab0fc5654e89a4d3023dc3e4486aaa245b1ff5f5ddc9", size = 27792, upload-time = "2025-04-08T00:42:17.809Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/86/c6/d05a3db2b9b9c94785ba2612044d5b728b8c2ec53e2a8a70cb824c2401b8/asyncinotify-4.2.1-py3-none-any.whl", hash = "sha256:40a982e76e9450fbb56858620565cdeb21c35849585ceba1a1a90b8b74d1e15e", size = 17542, upload-time = "2025-04-08T00:42:16.677Z" },
+]
+
+[[package]]
 name = "attrs"
 version = "25.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -233,6 +242,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
     { name = "anyio" },
+    { name = "asyncinotify" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "mcp" },
@@ -263,6 +273,7 @@ dev = [
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.19.0" },
     { name = "anyio", specifier = ">=4.2.0" },
+    { name = "asyncinotify", specifier = ">=4.2.1" },
     { name = "fastapi", specifier = ">=0.109.0" },
     { name = "httpx", specifier = ">=0.26.0" },
     { name = "mcp", specifier = ">=1.12.0" },

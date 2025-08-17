@@ -13,6 +13,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 import yaml
+from asyncinotify import Inotify, Mask
 from dotenv import load_dotenv
 
 
@@ -186,17 +187,45 @@ class Configuration:
             logging.info("Stopped watching runtime configuration file")
 
     async def _watch_config_file(self) -> None:
-        """Async task that watches for config file changes."""
-        while True:
-            try:
-                await asyncio.sleep(1)  # Check every second - still efficient
+        """Event-driven config file watcher using Linux inotify."""
+        inotify = None
+        try:
+            inotify = Inotify()
+            # Watch for file modifications and moves (e.g., atomic saves)
+            inotify.add_watch(  # type: ignore
+                self._runtime_config_path,
+                Mask.MODIFY | Mask.MOVE_SELF | Mask.DELETE_SELF,
+            )
+
+            logging.info(f"Watching config file: {self._runtime_config_path}")
+
+            async for _event in inotify:
                 if self._reload_config():
                     logging.info("Runtime configuration file changed - config reloaded")
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logging.error(f"Error watching config file: {e}")
-                await asyncio.sleep(5)  # Back off on errors
+
+        except asyncio.CancelledError:
+            logging.info("Config file watching cancelled")
+        except Exception as e:
+            logging.error(f"Error watching config file with inotify: {e}")
+            # Fallback to polling with longer interval on inotify failure
+            logging.warning("Falling back to polling every 30 seconds")
+            while True:
+                try:
+                    await asyncio.sleep(30)  # Much less aggressive fallback
+                    if self._reload_config():
+                        logging.info(
+                            "Runtime configuration file changed - config reloaded"
+                        )
+                except asyncio.CancelledError:
+                    break
+                except Exception as fallback_e:
+                    logging.error(f"Error in polling fallback: {fallback_e}")
+                    await asyncio.sleep(60)  # Back off further on repeated errors
+        finally:
+            # Ensure inotify is properly closed
+            if inotify is not None:
+                with contextlib.suppress(Exception):
+                    inotify.close()
 
     def _get_config_value(self, path: list[str], default: Any = None) -> Any:
         """Get a configuration value by path, with fallback to defaults."""
