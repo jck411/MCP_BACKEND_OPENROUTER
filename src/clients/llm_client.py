@@ -17,6 +17,15 @@ from typing import Any
 import httpx
 from mcp import McpError, types
 
+from src.chat.models import (
+    AssistantMessage,
+    ChatCompletionMessage,
+    LLMResponseData,
+    StreamingChunk,
+    StreamingResponse,
+    ThinkingChunk,
+    ToolDefinition,
+)
 from src.config import Configuration
 
 
@@ -155,7 +164,7 @@ class LLMClient:
         Returns:
             List of config keys that require client replacement
         """
-        client_breaking_keys = []
+        client_breaking_keys: list[str] = []
 
         # API key change always requires new client (authentication)
         if new_api_key != self._current_api_key:
@@ -277,7 +286,7 @@ class LLMClient:
         This makes the client ready for any new parameters without code changes.
         """
         # Start with required parameters
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.config["model"],
             "messages": messages,
         }
@@ -347,12 +356,13 @@ class LLMClient:
         return reasoning_content
 
     async def get_response_with_tools(
-        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
-    ) -> dict[str, Any]:
+        self,
+        messages: list[ChatCompletionMessage],
+        tools: list[ToolDefinition] | None = None,
+    ) -> LLMResponseData:
         """
-        Get response from LLM API with automatic parameter pass-through and
-        reasoning extraction. Ready for any model type including reasoning models
-        like o1, o3, Claude with thinking, etc.
+        Get response from LLM API with full typing support and automatic parameter
+        pass-through. Supports reasoning models like o1, o3, Claude with thinking, etc.
         """
         if not self.client:
             raise McpError(
@@ -362,7 +372,11 @@ class LLMClient:
             )
 
         try:
-            payload = self._build_payload(messages, tools, stream=False)
+            # Convert typed inputs to dict format for API
+            dict_messages = [msg.model_dump() for msg in messages]
+            dict_tools = [tool.model_dump() for tool in tools] if tools else None
+
+            payload = self._build_payload(dict_messages, dict_tools, stream=False)
 
             response = await self.client.post("/chat/completions", json=payload)
             response.raise_for_status()
@@ -382,18 +396,16 @@ class LLMClient:
             # Extract reasoning content if present
             thinking_content = self._extract_reasoning_content(result)
 
-            response_dict = {
-                "message": choice["message"],
-                "finish_reason": choice.get("finish_reason"),
-                "index": choice.get("index", 0),
-                "model": result.get("model", self.config["model"]),
-            }
+            # Convert to typed response
+            assistant_msg = AssistantMessage.from_dict(choice["message"])
 
-            # Include thinking/reasoning content if found
-            if thinking_content:
-                response_dict["thinking"] = thinking_content
-
-            return response_dict
+            return LLMResponseData(
+                message=assistant_msg,
+                finish_reason=choice.get("finish_reason"),
+                index=choice.get("index", 0),
+                model=result.get("model", self.config["model"]),
+                thinking=thinking_content,
+            )
 
         except httpx.HTTPError as e:
             logging.error(f"HTTP error: {e}")
@@ -420,12 +432,13 @@ class LLMClient:
             ) from e
 
     async def get_streaming_response_with_tools(  # noqa: PLR0912, PLR0915
-        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
-    ) -> AsyncGenerator[dict[str, Any]]:
+        self,
+        messages: list[ChatCompletionMessage],
+        tools: list[ToolDefinition] | None = None,
+    ) -> AsyncGenerator[StreamingResponse]:
         """
-        Get streaming response with automatic parameter pass-through and
-        reasoning handling. Supports reasoning models by buffering thinking
-        content and yielding it separately.
+        Get streaming response with full typing support and automatic parameter
+        pass-through. Supports reasoning models by buffering thinking content.
         """
         if not self.client:
             raise McpError(
@@ -439,7 +452,11 @@ class LLMClient:
         logging.debug(f"📈 Started stream, active streams: {self._active_streams}")
 
         try:
-            payload = self._build_payload(messages, tools, stream=True)
+            # Convert typed inputs to dict format for API
+            dict_messages = [msg.model_dump() for msg in messages]
+            dict_tools = [tool.model_dump() for tool in tools] if tools else None
+
+            payload = self._build_payload(dict_messages, dict_tools, stream=True)
 
             # Buffers for reasoning content
             thinking_buffer = ""
@@ -486,11 +503,11 @@ class LLMClient:
                             # If we have accumulated thinking content, yield it
                             # as final chunk
                             if thinking_buffer and not thinking_complete:
-                                yield {
-                                    "type": "thinking",
-                                    "content": thinking_buffer,
-                                    "complete": True,
-                                }
+                                yield ThinkingChunk(
+                                    type="thinking",
+                                    content=thinking_buffer,
+                                    complete=True,
+                                )
                             break
 
                         try:
@@ -502,26 +519,26 @@ class LLMClient:
                             if thinking_delta is not None:
                                 thinking_buffer += thinking_delta
                                 # Yield thinking chunk separately
-                                yield {
-                                    "type": "thinking",
-                                    "content": thinking_delta,
-                                    "complete": False,
-                                }
+                                yield ThinkingChunk(
+                                    type="thinking",
+                                    content=thinking_delta,
+                                    complete=False,
+                                )
                                 continue
 
                             # Check if thinking section just completed
                             if self._is_thinking_complete(chunk):
                                 thinking_complete = True
                                 if thinking_buffer:
-                                    yield {
-                                        "type": "thinking",
-                                        "content": "",  # Empty content signals end
-                                        "complete": True,
-                                        "full_thinking": thinking_buffer,
-                                    }
+                                    yield ThinkingChunk(
+                                        type="thinking",
+                                        content="",  # Empty content signals end
+                                        complete=True,
+                                        full_thinking=thinking_buffer,
+                                    )
 
                             # Yield normal content chunks
-                            yield chunk
+                            yield StreamingChunk.model_validate(chunk)
 
                         except json.JSONDecodeError as e:
                             # FAIL FAST: Invalid JSON in stream
@@ -548,18 +565,19 @@ class LLMClient:
             logging.error(f"HTTP error args: {e.args}")
 
             # Log response details if available (only for HTTPStatusError)
-            if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
-                logging.error(f"Response status: {e.response.status_code}")
-                logging.error(f"Response headers: {dict(e.response.headers)}")
+            if isinstance(e, httpx.HTTPStatusError):
+                response = e.response
+                logging.error(f"Response status: {response.status_code}")
+                logging.error(f"Response headers: {dict(response.headers)}")
                 try:
                     # Try to read response body for more context
-                    if hasattr(e.response, "text"):
-                        error_body = e.response.text
+                    if hasattr(response, "text"):
+                        error_body = response.text
                         logging.error(
                             f"Response body: {error_body[:1000]}..."
                         )  # Truncate long responses
-                    elif hasattr(e.response, "content"):
-                        error_body = str(e.response.content[:1000])
+                    elif hasattr(response, "content"):
+                        error_body = str(response.content[:1000])
                         logging.error(f"Response content: {error_body}...")
                 except Exception as read_err:
                     logging.error(f"Could not read response body: {read_err}")
@@ -596,7 +614,7 @@ class LLMClient:
         Returns the thinking content if found, None otherwise.
         """
         # Check for thinking in various locations within streaming chunk
-        possible_thinking_paths = [
+        possible_thinking_paths: list[list[str | int]] = [
             ["thinking"],
             ["reasoning"],
             ["choices", 0, "delta", "thinking"],
@@ -608,7 +626,7 @@ class LLMClient:
         ]
 
         for path in possible_thinking_paths:
-            current = chunk
+            current: Any = chunk
             try:
                 for key in path:
                     current = current[key]
@@ -649,6 +667,11 @@ class LLMClient:
         """Async context manager entry."""
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
         """Async context manager exit."""
         await self.close()

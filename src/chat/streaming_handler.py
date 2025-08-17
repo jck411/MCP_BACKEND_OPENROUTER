@@ -21,7 +21,17 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
 from src.chat.logging_utils import log_llm_reply
-from src.chat.models import ChatMessage, ToolCallContext
+from src.chat.models import (
+    AssistantMessage,
+    ChatMessage,
+    ConversationHistory,
+    StreamingChunk,
+    ThinkingChunk,
+    ToolCallContext,
+    ToolCallDelta,
+    ToolDefinition,
+    ToolMessage,
+)
 from src.history import ChatEvent
 
 if TYPE_CHECKING:
@@ -69,8 +79,8 @@ class StreamingHandler:
 
     async def stream_and_handle_tools(
         self,
-        conv: list[dict[str, Any]],
-        tools_payload: list[dict[str, Any]],
+        conv: ConversationHistory,
+        tools_payload: list[ToolDefinition],
         conversation_id: str,
         request_id: str,
     ) -> AsyncGenerator[ChatMessage]:
@@ -81,8 +91,8 @@ class StreamingHandler:
 
         full_content = ""
 
-        # Initial response streaming
-        assistant_msg: dict[str, Any] = {}
+        # Initial response streaming - collect complete response
+        raw_assistant_msg = None
         async for chunk in self.stream_llm_response_with_deltas(
             conv, tools_payload, conversation_id, request_id
         ):
@@ -92,11 +102,19 @@ class StreamingHandler:
                 logger.debug("→ Frontend: text delta, length=%d", len(chunk.content))
                 yield chunk
             else:
-                assistant_msg = chunk
-                if assistant_msg.get("content"):
-                    full_content += assistant_msg["content"]
+                # This is our completed dict response
+                raw_assistant_msg = chunk
+                if raw_assistant_msg.get("content"):
+                    full_content += raw_assistant_msg["content"]
 
-        self.log_initial_response(assistant_msg)
+        if not raw_assistant_msg:
+            logger.warning("No assistant message received from streaming")
+            return
+
+        # Convert dict to typed AssistantMessage
+        assistant_msg = AssistantMessage.from_dict(raw_assistant_msg)
+
+        self.log_initial_response(raw_assistant_msg)
 
         # Handle tool call iterations
         context = ToolCallContext(
@@ -133,7 +151,7 @@ class StreamingHandler:
         """Handle iterative tool calls with hop limit."""
         hops = 0
 
-        while context.assistant_msg.get("tool_calls"):
+        while context.assistant_msg.tool_calls:
             should_stop, warning_msg = self.tool_executor.check_tool_hop_limit(hops)
             if should_stop and warning_msg:
                 context.full_content += "\n\n" + warning_msg
@@ -147,21 +165,34 @@ class StreamingHandler:
 
             logger.info("Starting tool call iteration %d", hops + 1)
 
-            # Execute tool calls
-            context.conv.append(
-                {
-                    "role": "assistant",
-                    "content": context.assistant_msg.get("content") or "",
-                    "tool_calls": context.assistant_msg["tool_calls"],
-                }
+            # Execute tool calls - add assistant message to conversation
+            assistant_message = AssistantMessage(
+                content=context.assistant_msg.content or "",
+                tool_calls=context.assistant_msg.tool_calls,
             )
+            context.conv.add_message(assistant_message)
+
+            # Execute the tool calls and get updated conversation
+            conv_dict = context.conv.get_dict_format()
             await self.tool_executor.execute_tool_calls(
-                context.conv, context.assistant_msg["tool_calls"]
+                conv_dict,
+                [tc.model_dump() for tc in context.assistant_msg.tool_calls],
             )
 
-            # Get follow-up response
+            # Update the conversation object with tool responses
+            # The tool executor adds tool response messages to the dict conversation
+            current_msg_count = len(context.conv.get_dict_format())
+            # Get only the new tool messages
+            new_messages = conv_dict[current_msg_count:]
+
+            # Add tool response messages to the conversation object
+            for msg_dict in new_messages:
+                tool_msg = ToolMessage(
+                    content=msg_dict["content"], tool_call_id=msg_dict["tool_call_id"]
+                )
+                context.conv.add_message(tool_msg)  # Get follow-up response
             logger.info("→ LLM: requesting follow-up response for hop %d", hops + 1)
-            context.assistant_msg = {}
+            raw_assistant_msg = None
             async for chunk in self.stream_llm_response_with_deltas(
                 context.conv,
                 context.tools_payload,
@@ -174,9 +205,13 @@ class StreamingHandler:
                         context.full_content += chunk.content
                     yield chunk
                 else:
-                    context.assistant_msg = chunk
-                    if context.assistant_msg.get("content"):
-                        context.full_content += context.assistant_msg["content"]
+                    raw_assistant_msg = chunk
+                    if raw_assistant_msg.get("content"):
+                        context.full_content += raw_assistant_msg["content"]
+
+            # Convert new response to typed model
+            if raw_assistant_msg:
+                context.assistant_msg = AssistantMessage.from_dict(raw_assistant_msg)
 
             hops += 1
             logger.info("Completed tool call iteration %d", hops)
@@ -185,8 +220,8 @@ class StreamingHandler:
 
     async def stream_llm_response_with_deltas(
         self,
-        conv: list[dict[str, Any]],
-        tools_payload: list[dict[str, Any]],
+        conv: ConversationHistory,
+        tools_payload: list[ToolDefinition],
         conversation_id: str,
         user_request_id: str,
         hop_number: int = 0,
@@ -204,60 +239,63 @@ class StreamingHandler:
         finish_reason: str | None = None
         delta_index = 0  # Track delta order for proper reconstruction
 
-        # Stream from LLM API - this is where the real-time magic happens
+        # Stream from LLM API using typed models
         async for chunk in self.llm_client.get_streaming_response_with_tools(
-            conv, tools_payload
+            conv.get_api_format(), tools_payload
         ):
-            # Skip malformed chunks (defensive programming)
-            if "choices" not in chunk or not chunk["choices"]:
-                continue
+            # Handle StreamingChunk (normal content)
+            if isinstance(chunk, StreamingChunk) and chunk.choices:
+                choice = chunk.choices[0]
+                delta = choice.delta
 
-            choice = chunk["choices"][0]
-            delta = choice.get("delta", {})
+                # Stream content immediately to user
+                if delta.content:
+                    content = delta.content
+                    message_buffer += content
 
-            # PRIORITY 1: Stream content immediately to provide responsive UX
-            # Content deltas are the most time-sensitive part of the response
-            if content := delta.get("content"):
-                message_buffer += content  # Build complete message for final storage
+                    # Persist this content delta for history reconstruction
+                    delta_event = ChatEvent(
+                        conversation_id=conversation_id,
+                        seq=0,  # Repository will assign sequence number
+                        type="meta",  # Internal event type for system operations
+                        content=content,
+                        extra={
+                            "kind": "assistant_delta",
+                            "user_request_id": user_request_id,
+                            "hop_number": hop_number,
+                            "delta_index": delta_index,
+                            "request_id": user_request_id,
+                        },
+                    )
+                    await self.repo.add_event(delta_event)
+                    delta_index += 1
 
-                # Persist this content delta for history reconstruction
-                # Each delta gets a unique index for proper ordering
-                delta_event = ChatEvent(
-                    conversation_id=conversation_id,
-                    seq=0,  # Repository will assign sequence number
-                    type="meta",  # Internal event type for system operations
-                    content=content,
-                    extra={
-                        "kind": "assistant_delta",  # Specific delta type identifier
-                        "user_request_id": user_request_id,  # Link to request
-                        "hop_number": hop_number,  # Track tool call iteration depth
-                        "delta_index": delta_index,  # Preserve streaming order
-                        "request_id": user_request_id,  # Redundant for easier queries
-                    },
-                )
-                await self.repo.add_event(delta_event)
-                delta_index += 1  # Increment for next delta
+                    # Stream to user immediately
+                    logger.debug(
+                        "→ Frontend: streaming content delta, length=%d", len(content)
+                    )
+                    yield ChatMessage(
+                        type="text",
+                        content=content,
+                        metadata={"type": "delta", "hop": hop_number},
+                    )
 
-                # IMMEDIATE USER FEEDBACK: Stream to user without waiting
-                # This is what makes the UI feel responsive during long responses
-                logger.debug(
-                    "→ Frontend: streaming content delta, length=%d", len(content)
-                )
-                yield ChatMessage(
-                    type="text",
-                    content=content,
-                    metadata={"type": "delta", "hop": hop_number},
-                )
+                # Handle tool calls from delta
+                if delta.tool_calls:
+                    # Accumulate tool call deltas properly
+                    for tool_call_delta in delta.tool_calls:
+                        self._accumulate_tool_call_delta(
+                            current_tool_calls, tool_call_delta
+                        )
 
-            # PRIORITY 2: Accumulate tool calls for batch execution
-            # Tool calls need to be complete before execution, so we buffer them
-            if tool_calls := delta.get("tool_calls"):
-                # Use robust accumulation that handles out-of-order and partial deltas
-                self.tool_executor.accumulate_tool_calls(current_tool_calls, tool_calls)
+                # Handle finish reason
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
 
-            # PRIORITY 3: Track completion status for proper flow control
-            if "finish_reason" in choice:
-                finish_reason = choice["finish_reason"]
+            # Handle ThinkingChunk (reasoning models)
+            elif isinstance(chunk, ThinkingChunk):
+                # For now, we can log thinking content but don't stream it to user
+                logger.debug("→ Thinking: %s", chunk.content[:100])
 
         logger.info(
             "← LLM: streaming completed (hop %d), finish_reason=%s",
@@ -265,12 +303,19 @@ class StreamingHandler:
             finish_reason,
         )
 
+        # Filter out incomplete tool calls before returning
+        complete_tool_calls: list[dict[str, Any]] = []
+        for call in current_tool_calls:
+            if (
+                call.get("id")
+                and call.get("function", {}).get("name")
+                and call.get("function", {}).get("arguments") is not None
+            ):
+                complete_tool_calls.append(call)
+
         # Provide user feedback when transitioning to tool execution phase
-        # This helps users understand what's happening during longer operations
-        if current_tool_calls and any(
-            call["function"]["name"] for call in current_tool_calls
-        ):
-            tool_count = len(current_tool_calls)
+        if complete_tool_calls:
+            tool_count = len(complete_tool_calls)
             logger.info(
                 "→ Frontend: tool execution notification (%d tools)", tool_count
             )
@@ -281,13 +326,9 @@ class StreamingHandler:
             )
 
         # Return complete assistant message for tool call processing
-        # This allows the caller to determine if more LLM interactions are needed
         yield {
             "content": message_buffer or None,
-            "tool_calls": current_tool_calls
-            if current_tool_calls
-            and any(call["function"]["name"] for call in current_tool_calls)
-            else None,
+            "tool_calls": complete_tool_calls if complete_tool_calls else None,
             "finish_reason": finish_reason,
         }
 
@@ -365,3 +406,50 @@ class StreamingHandler:
             "model": self.llm_client.config.get("model", ""),
         }
         log_llm_reply(reply_data, "Streaming initial response", self.chat_conf)
+
+    def _accumulate_tool_call_delta(
+        self, current_tool_calls: list[dict[str, Any]], delta: ToolCallDelta
+    ) -> None:
+        """
+        Accumulate tool call delta into the current tool calls list.
+
+        This handles the incremental nature of streaming tool calls where
+        each delta may contain partial information (id, function name, arguments)
+        that needs to be accumulated into complete tool call objects.
+        """
+        # Get the delta as a dict for easier manipulation
+        delta_dict = delta.model_dump() if hasattr(delta, "model_dump") else dict(delta)
+
+        # Extract the index if available, otherwise assume it's a new tool call
+        index = delta_dict.get("index", len(current_tool_calls))
+
+        # Ensure we have enough slots in the list
+        while len(current_tool_calls) <= index:
+            current_tool_calls.append(
+                {
+                    "id": None,
+                    "type": "function",
+                    "function": {"name": None, "arguments": ""},
+                }
+            )
+
+        # Get the current tool call at this index
+        current_call: dict[str, Any] = current_tool_calls[index]  # type: ignore
+
+        # Update fields from delta
+        if delta_dict.get("id"):
+            current_call["id"] = delta_dict["id"]
+
+        if delta_dict.get("type"):
+            current_call["type"] = delta_dict["type"]
+
+        # Handle function delta
+        if delta_dict.get("function"):
+            function_delta = delta_dict["function"]
+
+            if function_delta.get("name"):
+                current_call["function"]["name"] = function_delta["name"]
+
+            if function_delta.get("arguments"):
+                # Accumulate arguments as they come in chunks
+                current_call["function"]["arguments"] += function_delta["arguments"]

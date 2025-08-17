@@ -15,19 +15,27 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
+from src.clients.mcp_client import MCPClient
 from src.config import Configuration
 from src.history import ChatEvent
+from src.tool_schema_manager import ToolSchemaManager
 
-from .models import ChatMessage
+from .models import (
+    AssistantMessage,
+    ChatMessage,
+    ConversationHistory,
+    SystemMessage,
+    ToolDefinition,
+    ToolMessage,
+    UserMessage,
+)
 from .resource_loader import ResourceLoader
 from .simple_chat_handler import SimpleChatHandler
 from .streaming_handler import StreamingHandler
 from .tool_executor import ToolExecutor
 
 if TYPE_CHECKING:
-    from src.tool_schema_manager import ToolSchemaManager
-else:
-    from src.tool_schema_manager import ToolSchemaManager
+    from src.clients.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +52,10 @@ class ChatOrchestrator:
     class ChatOrchestratorConfig(BaseModel):
         model_config = ConfigDict(arbitrary_types_allowed=True)
 
-        clients: list[Any]  # MCPClient
-        llm_client: Any  # LLMClient
+        clients: list[MCPClient]
+        llm_client: "LLMClient"
         config: dict[str, Any]
-        repo: Any  # ChatRepository
+        repo: Any  # ChatRepository protocol - use Any to avoid pydantic issues
         configuration: Configuration
         ctx_window: int = 4000
 
@@ -90,7 +98,7 @@ class ChatOrchestrator:
             )
 
             # Filter out only successfully connected clients
-            connected_clients: list[Any] = []
+            connected_clients: list[MCPClient] = []
             for i, result in enumerate(connection_results):
                 if isinstance(result, Exception):
                     logger.warning(
@@ -214,14 +222,21 @@ class ChatOrchestrator:
 
         # Build conversation and generate response
         system_prompt = await self.resource_loader.make_system_prompt()
-        conv = await self.repo.build_llm_conversation(
+        conv_dict = await self.repo.build_llm_conversation(
             conversation_id, user_msg, system_prompt
         )
+
+        # Convert to typed ConversationHistory for efficiency
+        conv = self._convert_to_conversation_history(conv_dict)
+
         tools_payload = self.tool_mgr.get_openai_tools()
+
+        # Convert to typed ToolDefinition list
+        typed_tools = [ToolDefinition.model_validate(tool) for tool in tools_payload]
 
         # Stream and handle tool calls
         async for msg in self.streaming_handler.stream_and_handle_tools(
-            conv, tools_payload, conversation_id, request_id
+            conv, typed_tools, conversation_id, request_id
         ):
             yield msg
 
@@ -264,9 +279,12 @@ class ChatOrchestrator:
 
         tools_payload = self.tool_mgr.get_openai_tools()
 
+        # Convert to typed ToolDefinition list
+        typed_tools = [ToolDefinition.model_validate(tool) for tool in tools_payload]
+
         # Delegate to simple chat handler
         result = await self.simple_chat_handler.chat_once(
-            conversation_id, user_msg, request_id, tools_payload
+            conversation_id, user_msg, request_id, typed_tools
         )
 
         logger.info("← Orchestrator: completed non-streaming chat processing")
@@ -336,3 +354,38 @@ class ChatOrchestrator:
         if not self.tool_mgr:
             return 0
         return len(self.tool_mgr.list_available_prompts())
+
+    def _convert_to_conversation_history(
+        self, conv_dict: list[dict[str, Any]]
+    ) -> ConversationHistory:
+        """Convert dictionary conversation to typed ConversationHistory."""
+        history = ConversationHistory()
+
+        for msg_dict in conv_dict:
+            role = msg_dict.get("role")
+            if role == "system":
+                history.system_prompt = SystemMessage(
+                    role="system", content=msg_dict.get("content", "")
+                )
+            elif role == "user":
+                history.add_message(
+                    UserMessage(role="user", content=msg_dict.get("content", ""))
+                )
+            elif role == "assistant":
+                history.add_message(
+                    AssistantMessage(
+                        role="assistant",
+                        content=msg_dict.get("content", ""),
+                        tool_calls=msg_dict.get("tool_calls", []),
+                    )
+                )
+            elif role == "tool":
+                history.add_message(
+                    ToolMessage(
+                        role="tool",
+                        tool_call_id=msg_dict.get("tool_call_id", ""),
+                        content=msg_dict.get("content", ""),
+                    )
+                )
+
+        return history
