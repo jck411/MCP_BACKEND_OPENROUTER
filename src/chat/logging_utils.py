@@ -1,0 +1,147 @@
+"""
+Chat Logging Utilities
+
+Shared logging functionality for chat operations to eliminate code duplication.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+def log_llm_reply(
+    reply: dict[str, Any], context: str, chat_conf: dict[str, Any]
+) -> None:
+    """
+    Log LLM reply if configured, including thinking content for reasoning models.
+
+    Shared implementation to avoid duplication between streaming and
+    non-streaming handlers.
+
+    Args:
+        reply: LLM API response containing message, model, and optional thinking
+        context: Descriptive context for the log entry
+        chat_conf: Chat configuration containing logging settings
+    """
+    logging_config = chat_conf.get("logging", {})
+    if not logging_config.get("llm_replies", False):
+        return
+
+    message = reply.get("message", {})
+    content = message.get("content", "")
+    tool_calls = message.get("tool_calls", [])
+    thinking = reply.get("thinking", "")
+
+    # Truncate content if configured
+    truncate_length = logging_config.get("llm_reply_truncate_length", 500)
+    if content and len(content) > truncate_length:
+        content = content[:truncate_length] + "..."
+
+    # Truncate thinking content if present
+    if thinking and len(thinking) > truncate_length:
+        thinking = thinking[:truncate_length] + "..."
+
+    log_parts = [f"LLM Reply ({context}):"]
+
+    # Log thinking content first for reasoning models
+    if thinking:
+        log_parts.append(f"Thinking: {thinking}")
+
+    if content:
+        log_parts.append(f"Content: {content}")
+
+    if tool_calls:
+        log_parts.append(f"Tool calls: {len(tool_calls)}")
+        for i, call in enumerate(tool_calls):
+            name = call.get("function", {}).get("name", "unknown")
+            log_parts.append(f"  [{i}] {name}")
+
+    model = reply.get("model", "unknown")
+    log_parts.append(f"Model: {model}")
+
+    logger.info(" | ".join(log_parts))
+
+
+def log_tool_execution_start(
+    tool_name: str, call_index: int = 0, total_calls: int = 1
+) -> None:
+    """
+    Log the start of tool execution with consistent formatting.
+
+    Args:
+        tool_name: Name of the tool being executed
+        call_index: Index of current call (0-based, used for batch execution)
+        total_calls: Total number of calls in batch (for batch execution context)
+    """
+    if total_calls > 1:
+        logger.info(
+            "→ MCP[%s]: executing tool call %d/%d",
+            tool_name,
+            call_index + 1,
+            total_calls,
+        )
+    else:
+        logger.info("→ MCP[%s]: executing tool", tool_name)
+
+
+def log_tool_execution_success(tool_name: str, content_length: int) -> None:
+    """
+    Log successful tool execution with content length.
+
+    Args:
+        tool_name: Name of the executed tool
+        content_length: Length of the returned content
+    """
+    logger.info("← MCP[%s]: success, content length: %d", tool_name, content_length)
+
+
+def log_tool_execution_error(tool_name: str, error_msg: str) -> None:
+    """
+    Log tool execution error with consistent formatting.
+
+    Args:
+        tool_name: Name of the tool that failed
+        error_msg: Error message describing the failure
+    """
+    logger.error("← MCP[%s]: failed with error: %s", tool_name, error_msg)
+
+
+def log_tool_args_error(tool_name: str, error: Exception) -> None:
+    """
+    Log malformed tool arguments warning.
+
+    Args:
+        tool_name: Name of the tool with malformed arguments
+        error: The JSON decode or validation error
+    """
+    logger.warning("Malformed JSON arguments for %s: %s", tool_name, error)
+
+
+def log_directional_flow(
+    direction: str, component: str, message: str, *args: Any
+) -> None:
+    """
+    Log directional flow messages with consistent arrow formatting.
+
+    Args:
+        direction: Either "→" (outgoing) or "←" (incoming/completed)
+        component: Component name (e.g., "LLM", "Repository", "Frontend", "MCP")
+        message: Message template with optional format placeholders
+        *args: Arguments for message formatting
+    """
+    formatted_msg = message % args if args else message
+    logger.info(f"{direction} {component}: {formatted_msg}")
+
+
+def log_error_with_context(context: str, error: Exception) -> None:
+    """
+    Log errors with consistent formatting across the application.
+
+    Args:
+        context: Descriptive context of where the error occurred
+        error: The exception that was raised
+    """
+    logger.error(f"Error {context}: {error}")

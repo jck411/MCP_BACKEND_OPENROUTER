@@ -25,7 +25,7 @@ This workspace contains an MCP (Model Context Protocol) chatbot platform that co
 ### Core Structure
 ```
 src/
-├── main.py              # Main MCP client application
+├── main.py              # Main application entry point with startup logic
 ├── chat_service.py      # Chat orchestration and session management
 ├── config.py           # Configuration management
 ├── tool_schema_manager.py # Tool schema validation and conversion

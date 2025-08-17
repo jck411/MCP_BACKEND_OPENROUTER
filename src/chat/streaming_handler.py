@@ -20,6 +20,7 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
+from src.chat.logging_utils import log_llm_reply
 from src.chat.models import ChatMessage, ToolCallContext
 from src.history import ChatEvent
 
@@ -363,44 +364,4 @@ class StreamingHandler:
             "message": assistant_msg,
             "model": self.llm_client.config.get("model", ""),
         }
-        self.log_llm_reply(reply_data, "Streaming initial response")
-
-    def log_llm_reply(self, reply: dict[str, Any], context: str) -> None:
-        """Log LLM reply if configured, including thinking content for reasoning."""
-        logging_config = self.chat_conf.get("logging", {})
-        if not logging_config.get("llm_replies", False):
-            return
-
-        message = reply.get("message", {})
-        content = message.get("content", "")
-        tool_calls = message.get("tool_calls", [])
-        thinking = reply.get("thinking", "")
-
-        # Truncate content if configured
-        truncate_length = logging_config.get("llm_reply_truncate_length", 500)
-        if content and len(content) > truncate_length:
-            content = content[:truncate_length] + "..."
-
-        # Truncate thinking content if present
-        if thinking and len(thinking) > truncate_length:
-            thinking = thinking[:truncate_length] + "..."
-
-        log_parts = [f"LLM Reply ({context}):"]
-
-        # Log thinking content first for reasoning models
-        if thinking:
-            log_parts.append(f"Thinking: {thinking}")
-
-        if content:
-            log_parts.append(f"Content: {content}")
-
-        if tool_calls:
-            log_parts.append(f"Tool calls: {len(tool_calls)}")
-            for i, call in enumerate(tool_calls):
-                func_name = call.get("function", {}).get("name", "unknown")
-                log_parts.append(f"  - Tool {i + 1}: {func_name}")
-
-        model = reply.get("model", "unknown")
-        log_parts.append(f"Model: {model}")
-
-        logger.info(" | ".join(log_parts))
+        log_llm_reply(reply_data, "Streaming initial response", self.chat_conf)

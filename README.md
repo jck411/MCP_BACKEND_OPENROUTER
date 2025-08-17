@@ -91,7 +91,7 @@ uv run ruff format src/mcp/client.py src/llm/client.py
 ```
 src/
 ├── main.py              # Entry point
-├── application.py       # App startup
+├── main.py             # App startup and main entry point
 ├── mcp/                 # MCP client module
 │   └── client.py        # MCPClient class
 ├── llm/                 # LLM client module

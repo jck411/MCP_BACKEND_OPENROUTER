@@ -19,6 +19,13 @@ from typing import TYPE_CHECKING, Any, cast
 
 from mcp import types
 
+from src.chat.logging_utils import (
+    log_tool_args_error,
+    log_tool_execution_error,
+    log_tool_execution_start,
+    log_tool_execution_success,
+)
+
 if TYPE_CHECKING:
     from src.config import Configuration
     from src.tool_schema_manager import ToolSchemaManager
@@ -168,27 +175,17 @@ class ToolExecutor:
                 args: dict[str, Any] = json.loads(call["function"]["arguments"] or "{}")
                 logger.debug("→ MCP[%s]: calling with args: %s", tool_name, args)
             except json.JSONDecodeError as e:
-                logger.warning(
-                    "→ MCP[%s]: malformed JSON arguments, using empty dict: %s",
-                    tool_name,
-                    e,
-                )
+                log_tool_args_error(tool_name, e)
                 args = {}
 
             try:
                 # Execute tool through tool manager (handles validation and routing)
-                logger.info(
-                    "→ MCP[%s]: executing tool call %d/%d", tool_name, i + 1, len(calls)
-                )
+                log_tool_execution_start(tool_name, i, len(calls))
                 result = await self.tool_mgr.call_tool(tool_name, args)
 
                 # Extract readable content from MCP result structure
                 content = self.pluck_content(result)
-                logger.info(
-                    "← MCP[%s]: success, content length: %d chars",
-                    tool_name,
-                    len(content),
-                )
+                log_tool_execution_success(tool_name, len(content))
 
                 # Append tool result to conversation in OpenAI format
                 conv.append(
@@ -201,7 +198,7 @@ class ToolExecutor:
 
             except Exception as e:
                 error_msg = f"Tool execution failed: {e!s}"
-                logger.error("← MCP[%s]: failed with error: %s", tool_name, error_msg)
+                log_tool_execution_error(tool_name, error_msg)
 
                 # Still append an error result to maintain conversation flow
                 conv.append(

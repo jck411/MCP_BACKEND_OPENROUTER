@@ -18,6 +18,12 @@ from typing import TYPE_CHECKING, Any
 
 from mcp import types
 
+from src.chat.logging_utils import (
+    log_llm_reply,
+    log_tool_args_error,
+    log_tool_execution_start,
+    log_tool_execution_success,
+)
 from src.history import ChatEvent
 
 if TYPE_CHECKING:
@@ -117,7 +123,7 @@ class SimpleChatHandler:
         assistant_msg = reply["message"]
 
         # Log LLM reply if configured
-        self.log_llm_reply(reply, "Initial LLM response")
+        log_llm_reply(reply, "Initial LLM response", self.chat_conf)
 
         # Store model from first API call
         model = reply.get("model", "")
@@ -152,17 +158,15 @@ class SimpleChatHandler:
                         call["function"]["arguments"] or "{}"
                     )
                 except json.JSONDecodeError as e:
-                    logger.warning("Malformed JSON arguments for %s: %s", tool_name, e)
+                    log_tool_args_error(tool_name, e)
                     args = {}
 
-                logger.info("→ MCP[%s]: executing tool", tool_name)
+                log_tool_execution_start(tool_name)
                 result: types.CallToolResult = (
                     await self.tool_executor.tool_mgr.call_tool(tool_name, args)
                 )
                 content: str = self.tool_executor.pluck_content(result)
-                logger.info(
-                    "← MCP[%s]: success, content length: %d", tool_name, len(content)
-                )
+                log_tool_execution_success(tool_name, len(content))
 
                 conv.append(
                     {
@@ -178,7 +182,9 @@ class SimpleChatHandler:
             assistant_msg = reply["message"]
 
             # Log LLM reply if configured
-            self.log_llm_reply(reply, f"Tool call follow-up response (hop {hops + 1})")
+            log_llm_reply(
+                reply, f"Tool call follow-up response (hop {hops + 1})", self.chat_conf
+            )
 
             if txt := assistant_msg.get("content"):
                 assistant_full_text += txt
@@ -188,43 +194,3 @@ class SimpleChatHandler:
 
         logger.info("← LLM: response generation completed")
         return assistant_full_text, model
-
-    def log_llm_reply(self, reply: dict[str, Any], context: str) -> None:
-        """Log LLM reply if configured, including thinking content for reasoning."""
-        logging_config = self.chat_conf.get("logging", {})
-        if not logging_config.get("llm_replies", False):
-            return
-
-        message = reply.get("message", {})
-        content = message.get("content", "")
-        tool_calls = message.get("tool_calls", [])
-        thinking = reply.get("thinking", "")
-
-        # Truncate content if configured
-        truncate_length = logging_config.get("llm_reply_truncate_length", 500)
-        if content and len(content) > truncate_length:
-            content = content[:truncate_length] + "..."
-
-        # Truncate thinking content if present
-        if thinking and len(thinking) > truncate_length:
-            thinking = thinking[:truncate_length] + "..."
-
-        log_parts = [f"LLM Reply ({context}):"]
-
-        # Log thinking content first for reasoning models
-        if thinking:
-            log_parts.append(f"Thinking: {thinking}")
-
-        if content:
-            log_parts.append(f"Content: {content}")
-
-        if tool_calls:
-            log_parts.append(f"Tool calls: {len(tool_calls)}")
-            for i, call in enumerate(tool_calls):
-                func_name = call.get("function", {}).get("name", "unknown")
-                log_parts.append(f"  - Tool {i + 1}: {func_name}")
-
-        model = reply.get("model", "unknown")
-        log_parts.append(f"Model: {model}")
-
-        logger.info(" | ".join(log_parts))

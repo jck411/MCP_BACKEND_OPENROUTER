@@ -44,7 +44,7 @@ The system follows a modular design where complex/fragile modules are isolated f
 
 ```
 src/
-├── application.py              # Main application entry point
+├── main.py                     # Main application entry point with startup logic
 ├── config.py                   # Configuration management with dynamic reload
 ├── tool_schema_manager.py      # Tool schema validation and conversion
 ├── websocket_server.py         # WebSocket communication layer
@@ -488,7 +488,7 @@ The project uses `uv` for dependency management and defines several entry points
 #### Available Scripts
 ```bash
 # Start the MCP platform
-uv run python src/application.py
+uv run python src/main.py
 
 # Reset runtime configuration to defaults
 uv run mcp-reset-config
@@ -564,7 +564,7 @@ async def function_name(
 4. Try manual reload: `config.reload_runtime_config()`
 
 #### WebSocket Connection Issues
-1. Verify server is running: `uv run python src/application.py`
+1. Verify server is running: `uv run python src/main.py`
 2. Check port configuration in runtime config
 3. Ensure firewall allows WebSocket connections
 4. Verify frontend WebSocket URL matches server config
@@ -672,7 +672,7 @@ ps aux | grep python
 - [ ] Install dependencies: `uv install`
 - [ ] Configure environment variables in `.env`
 - [ ] Review and customize `src/config.yaml`
-- [ ] Start the server: `uv run python src/application.py`
+- [ ] Start the server: `uv run python src/main.py`
 
 ### Frontend Integration
 - [ ] Implement WebSocket connection to configured port
