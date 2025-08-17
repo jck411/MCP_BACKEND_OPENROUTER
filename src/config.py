@@ -10,7 +10,7 @@ import os
 import sys
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from dotenv import load_dotenv
@@ -32,7 +32,7 @@ class Configuration:
 
         # Event-driven observer pattern
         self._config_change_callbacks: list[Callable[[dict[str, Any]], None]] = []
-        self._watch_task: asyncio.Task | None = None
+        self._watch_task: asyncio.Task[None] | None = None
 
         # Initialize persistent runtime configuration
         self._initialize_runtime_config()
@@ -50,7 +50,7 @@ class Configuration:
             config = yaml.safe_load(file)
             if not isinstance(config, dict):
                 raise ValueError("Configuration file must contain a dictionary")
-            return config
+            return cast(dict[str, Any], config)
 
     def _initialize_runtime_config(self) -> None:
         """Initialize runtime configuration file if it doesn't exist."""
@@ -77,7 +77,7 @@ class Configuration:
                     # If corrupted, recreate from defaults
                     self._initialize_runtime_config()
                     return self._load_runtime_config()
-                return config
+                return cast(dict[str, Any], config)
         except (yaml.YAMLError, OSError):
             # If runtime config is corrupted or unreadable, recreate from defaults
             self._initialize_runtime_config()
@@ -95,7 +95,9 @@ class Configuration:
                 and isinstance(result[key], dict)
                 and isinstance(value, dict)
             ):
-                result[key] = self._deep_merge(result[key], value)
+                result[key] = self._deep_merge(
+                    cast(dict[str, Any], result[key]), cast(dict[str, Any], value)
+                )
             else:
                 result[key] = value
 
@@ -196,26 +198,26 @@ class Configuration:
                 logging.error(f"Error watching config file: {e}")
                 await asyncio.sleep(5)  # Back off on errors
 
-    def _get_config_value(self, path: list[str], default=None):
+    def _get_config_value(self, path: list[str], default: Any = None) -> Any:
         """Get a configuration value by path, with fallback to defaults."""
         # Try to get from current runtime config first
-        current = self._get_current_config()
+        current: Any = self._get_current_config()
         for key in path:
             if isinstance(current, dict) and key in current:
-                current = current[key]
+                current = current[key]  # type: ignore[assignment]
             else:
                 # Fall back to default config
-                default_current = self._default_config
+                default_current: Any = self._default_config
                 for default_key in path:
                     if (
                         isinstance(default_current, dict)
                         and default_key in default_current
                     ):
-                        default_current = default_current[default_key]
+                        default_current = default_current[default_key]  # type: ignore[assignment]
                     else:
                         return default
-                return default_current
-        return current
+                return default_current  # type: ignore[return-value]
+        return current  # type: ignore[return-value]
 
     def reload_runtime_config(self) -> bool:
         """Manually reload runtime configuration.
@@ -240,7 +242,7 @@ class Configuration:
                 with open(self._runtime_config_path) as f:
                     loaded_config = yaml.safe_load(f)
                     if isinstance(loaded_config, dict):
-                        current_runtime_config = loaded_config
+                        current_runtime_config = cast(dict[str, Any], loaded_config)
             except (yaml.YAMLError, OSError):
                 pass
 
@@ -274,7 +276,8 @@ class Configuration:
                 with open(self._runtime_config_path) as f:
                     loaded_config = yaml.safe_load(f)
                     if isinstance(loaded_config, dict):
-                        return loaded_config.get("_runtime_config", {})
+                        runtime_config = cast(dict[str, Any], loaded_config)
+                        return runtime_config.get("_runtime_config", {})
             except (yaml.YAMLError, OSError):
                 pass
         return {}

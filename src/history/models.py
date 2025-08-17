@@ -8,7 +8,7 @@ This module contains all Pydantic models for the chat history system.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
@@ -65,6 +65,6 @@ class ChatEvent(BaseModel):
     provider: str | None = None
     model: str | None = None
     stop_reason: str | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     extra: dict[str, Any] = Field(default_factory=dict)
     raw: Any | None = None  # keep small; move big things elsewhere later

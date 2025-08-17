@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ValidationError
 
 from src.chat import ChatOrchestrator
+from src.chat.models import ChatMessage
 from src.config import Configuration
 from src.history import AutoPersistRepo, ChatRepository
 
@@ -106,15 +107,15 @@ class WebSocketServer:
         )
 
         @app.websocket("/ws/chat")
-        async def websocket_endpoint(websocket: WebSocket):
+        async def websocket_endpoint(websocket: WebSocket):  # type: ignore
             await self._handle_websocket_connection(websocket)
 
         @app.get("/")
-        async def root():
+        async def root():  # type: ignore
             return {"message": "MCP WebSocket Chat Server"}
 
         @app.get("/health")
-        async def health():
+        async def health():  # type: ignore
             return {"status": "healthy"}
 
         return app
@@ -381,7 +382,7 @@ class WebSocketServer:
         )
 
     async def _send_chat_response(
-        self, websocket: WebSocket, request_id: str, chat_message
+        self, websocket: WebSocket, request_id: str, chat_message: ChatMessage
     ):
         """Send a chat response to the frontend."""
         logger.info(
@@ -470,7 +471,7 @@ class WebSocketServer:
             )
 
             # Send history to frontend as a special message
-            history_messages = []
+            history_messages: list[dict[str, Any]] = []
             for event in history:
                 if event.type == "user_message":
                     history_messages.append(

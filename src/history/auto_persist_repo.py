@@ -15,7 +15,7 @@ import asyncio
 import contextlib
 import logging
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import aiosqlite
@@ -237,7 +237,7 @@ class AutoPersistRepo(SQLiteRepo):
 
         # Generate name if not provided
         if name is None:
-            timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+            timestamp = datetime.now(UTC).strftime("%Y-%m-%d_%H-%M-%S")
             name = f"Session_{timestamp}"
 
         # Get session info
