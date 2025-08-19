@@ -17,6 +17,7 @@ for what's sent to frontend.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
@@ -25,8 +26,6 @@ from src.chat.models import (
     AssistantMessage,
     ChatMessage,
     ConversationHistory,
-    StreamingChunk,
-    ThinkingChunk,
     ToolCallContext,
     ToolCallDelta,
     ToolDefinition,
@@ -234,74 +233,104 @@ class StreamingHandler:
         """
         logger.info("→ LLM: starting streaming request (hop %d)", hop_number)
 
-        message_buffer = ""
+        message_parts: list[str] = []
         current_tool_calls: list[dict[str, Any]] = []
         finish_reason: str | None = None
-        delta_index = 0  # Track delta order for proper reconstruction
 
-        # Stream from LLM API using typed models
+        # Buffered delta persistence configuration (defaults favor performance)
+        streaming_conf: dict[str, Any] = self.chat_conf.get("streaming", {})
+        persistence_conf: dict[str, Any] = streaming_conf.get("persistence", {})
+        persist_deltas: bool = bool(persistence_conf.get("persist_deltas", False))
+        persist_interval_ms: int = int(persistence_conf.get("interval_ms", 200))
+        persist_min_chars: int = int(persistence_conf.get("min_chars", 1024))
+
+        pending_delta_buffer: str = ""
+        last_persist_time: float = time.monotonic()
+
+        async def maybe_flush_pending(force: bool = False) -> None:
+            nonlocal pending_delta_buffer, last_persist_time
+            if not persist_deltas:
+                return
+            if not pending_delta_buffer and not force:
+                return
+            now = time.monotonic()
+            elapsed_ms = (now - last_persist_time) * 1000.0
+            if (
+                force
+                or elapsed_ms >= persist_interval_ms
+                or (
+                    persist_min_chars > 0
+                    and len(pending_delta_buffer) >= persist_min_chars
+                )
+            ):
+                # Persist aggregated delta as a single meta event
+                delta_event = ChatEvent(
+                    conversation_id=conversation_id,
+                    seq=0,  # Repository will assign sequence number
+                    type="meta",  # Internal event type for system operations
+                    content=pending_delta_buffer,
+                    extra={
+                        "kind": "assistant_delta",
+                        "user_request_id": user_request_id,
+                        "hop_number": hop_number,
+                        "request_id": user_request_id,
+                        "batched": True,
+                    },
+                )
+                await self.repo.add_event(delta_event)
+                pending_delta_buffer = ""
+                last_persist_time = now
+
+        # Stream from LLM API using raw dict chunks for minimal overhead
         async for chunk in self.llm_client.get_streaming_response_with_tools(
             conv.get_api_format(), tools_payload
         ):
-            # Handle StreamingChunk (normal content)
-            if isinstance(chunk, StreamingChunk) and chunk.choices:
-                choice = chunk.choices[0]
-                delta = choice.delta
+            # Raw chunk is expected to be dict[str, Any]
+            choices: list[dict[str, Any]] = chunk.get("choices", [])  # type: ignore[assignment]
+            if not choices:
+                continue
 
-                # Stream content immediately to user
-                if delta.content:
-                    content = delta.content
-                    message_buffer += content
+            choice: dict[str, Any] = choices[0]
+            delta: dict[str, Any] = choice.get("delta", {})
 
-                    # Persist this content delta for history reconstruction
-                    delta_event = ChatEvent(
-                        conversation_id=conversation_id,
-                        seq=0,  # Repository will assign sequence number
-                        type="meta",  # Internal event type for system operations
-                        content=content,
-                        extra={
-                            "kind": "assistant_delta",
-                            "user_request_id": user_request_id,
-                            "hop_number": hop_number,
-                            "delta_index": delta_index,
-                            "request_id": user_request_id,
-                        },
-                    )
-                    await self.repo.add_event(delta_event)
-                    delta_index += 1
+            # Stream content immediately to user
+            content = delta.get("content")
+            if content:
+                message_parts.append(content)
+                # Buffer this content delta and flush periodically if enabled
+                pending_delta_buffer += content
+                await maybe_flush_pending()
 
-                    # Stream to user immediately
-                    logger.debug(
-                        "→ Frontend: streaming content delta, length=%d", len(content)
-                    )
-                    yield ChatMessage(
-                        type="text",
-                        content=content,
-                        metadata={"type": "delta", "hop": hop_number},
-                    )
+                # Stream to user immediately
+                logger.debug(
+                    "→ Frontend: streaming content delta, length=%d", len(content)
+                )
+                yield ChatMessage(
+                    type="text",
+                    content=content,
+                    metadata={"type": "delta", "hop": hop_number},
+                )
 
-                # Handle tool calls from delta
-                if delta.tool_calls:
-                    # Accumulate tool call deltas properly
-                    for tool_call_delta in delta.tool_calls:
-                        self._accumulate_tool_call_delta(
-                            current_tool_calls, tool_call_delta
-                        )
+            # Handle tool calls from delta
+            tool_calls_delta: list[dict[str, Any]] | None = delta.get("tool_calls")
+            if tool_calls_delta:
+                for tool_call_delta in tool_calls_delta:
+                    # Convert to ToolCallDelta for typing
+                    tcd = ToolCallDelta.model_validate(tool_call_delta)
+                    self._accumulate_tool_call_delta(current_tool_calls, tcd)
 
-                # Handle finish reason
-                if choice.finish_reason:
-                    finish_reason = choice.finish_reason
-
-            # Handle ThinkingChunk (reasoning models)
-            elif isinstance(chunk, ThinkingChunk):
-                # For now, we can log thinking content but don't stream it to user
-                logger.debug("→ Thinking: %s", chunk.content[:100])
+            # Handle finish reason
+            if choice.get("finish_reason"):
+                finish_reason = choice.get("finish_reason")
 
         logger.info(
             "← LLM: streaming completed (hop %d), finish_reason=%s",
             hop_number,
             finish_reason,
         )
+
+        # Final flush of any pending buffered deltas
+        await maybe_flush_pending(force=True)
 
         # Filter out incomplete tool calls before returning
         complete_tool_calls: list[dict[str, Any]] = []
@@ -327,7 +356,7 @@ class StreamingHandler:
 
         # Return complete assistant message for tool call processing
         yield {
-            "content": message_buffer or None,
+            "content": ("".join(message_parts) or None),
             "tool_calls": complete_tool_calls if complete_tool_calls else None,
             "finish_reason": finish_reason,
         }

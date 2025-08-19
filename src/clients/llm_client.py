@@ -12,7 +12,7 @@ import json
 import logging
 import traceback
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from mcp import McpError, types
@@ -21,9 +21,6 @@ from src.chat.models import (
     AssistantMessage,
     ChatCompletionMessage,
     LLMResponseData,
-    StreamingChunk,
-    StreamingResponse,
-    ThinkingChunk,
     ToolDefinition,
 )
 from src.config import Configuration
@@ -201,8 +198,14 @@ class LLMClient:
         # Create new HTTP client
         self.client = httpx.AsyncClient(
             base_url=provider_config["base_url"],
-            headers={"Authorization": f"Bearer {new_api_key}"},
+            headers={
+                "Authorization": f"Bearer {new_api_key}",
+                "Content-Type": "application/json",
+            },
             timeout=60.0,
+            http2=True,
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+            trust_env=False,
         )
 
         logging.info("✅ New HTTP client created successfully")
@@ -235,8 +238,14 @@ class LLMClient:
             # Create HTTP client
             self.client = httpx.AsyncClient(
                 base_url=llm_config["base_url"],
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
                 timeout=60.0,
+                http2=True,
+                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+                trust_env=False,
             )
 
             logging.info(
@@ -435,7 +444,7 @@ class LLMClient:
         self,
         messages: list[ChatCompletionMessage],
         tools: list[ToolDefinition] | None = None,
-    ) -> AsyncGenerator[StreamingResponse]:
+    ) -> AsyncGenerator[dict[str, Any]]:
         """
         Get streaming response with full typing support and automatic parameter
         pass-through. Supports reasoning models by buffering thinking content.
@@ -451,6 +460,10 @@ class LLMClient:
         self._active_streams += 1
         logging.debug(f"📈 Started stream, active streams: {self._active_streams}")
 
+        # Fast JSON loader (use stdlib for portability and clear typing)
+        def fast_json_loads(s: str) -> dict[str, Any]:
+            return cast(dict[str, Any], json.loads(s))
+
         try:
             # Convert typed inputs to dict format for API
             dict_messages = [msg.model_dump() for msg in messages]
@@ -458,12 +471,11 @@ class LLMClient:
 
             payload = self._build_payload(dict_messages, dict_tools, stream=True)
 
-            # Buffers for reasoning content
-            thinking_buffer = ""
-            thinking_complete = False
-
             async with self.client.stream(
-                "POST", "/chat/completions", json=payload
+                "POST",
+                "/chat/completions",
+                json=payload,
+                headers={"Accept": "text/event-stream", "Accept-Encoding": "identity"},
             ) as response:
                 # FAIL FAST: Ensure streaming response is valid
                 HTTP_OK = 200
@@ -500,45 +512,15 @@ class LLMClient:
                         data = line[6:]  # Remove "data: " prefix
 
                         if data.strip() == "[DONE]":
-                            # If we have accumulated thinking content, yield it
-                            # as final chunk
-                            if thinking_buffer and not thinking_complete:
-                                yield ThinkingChunk(
-                                    type="thinking",
-                                    content=thinking_buffer,
-                                    complete=True,
-                                )
                             break
 
                         try:
-                            chunk = json.loads(data)
+                            chunk: dict[str, Any] = fast_json_loads(data)
                             chunk_count += 1
 
-                            # Check for reasoning/thinking content in this chunk
-                            thinking_delta = self._extract_thinking_from_chunk(chunk)
-                            if thinking_delta is not None:
-                                thinking_buffer += thinking_delta
-                                # Yield thinking chunk separately
-                                yield ThinkingChunk(
-                                    type="thinking",
-                                    content=thinking_delta,
-                                    complete=False,
-                                )
-                                continue
-
-                            # Check if thinking section just completed
-                            if self._is_thinking_complete(chunk):
-                                thinking_complete = True
-                                if thinking_buffer:
-                                    yield ThinkingChunk(
-                                        type="thinking",
-                                        content="",  # Empty content signals end
-                                        complete=True,
-                                        full_thinking=thinking_buffer,
-                                    )
-
-                            # Yield normal content chunks
-                            yield StreamingChunk.model_validate(chunk)
+                            # Yield raw chunk dict to avoid per-chunk Pydantic cost
+                            if "choices" in chunk:
+                                yield chunk  # handled by StreamingHandler
 
                         except json.JSONDecodeError as e:
                             # FAIL FAST: Invalid JSON in stream
@@ -607,52 +589,6 @@ class LLMClient:
                 task = asyncio.create_task(self._check_pending_config_change())
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
-
-    def _extract_thinking_from_chunk(self, chunk: dict[str, Any]) -> str | None:
-        """
-        Extract thinking/reasoning content from a streaming chunk.
-        Returns the thinking content if found, None otherwise.
-        """
-        # Check for thinking in various locations within streaming chunk
-        possible_thinking_paths: list[list[str | int]] = [
-            ["thinking"],
-            ["reasoning"],
-            ["choices", 0, "delta", "thinking"],
-            ["choices", 0, "delta", "reasoning"],
-            ["choices", 0, "message", "thinking"],
-            ["choices", 0, "message", "reasoning"],
-            ["delta", "thinking"],
-            ["delta", "reasoning"],
-        ]
-
-        for path in possible_thinking_paths:
-            current: Any = chunk
-            try:
-                for key in path:
-                    current = current[key]
-                if isinstance(current, str):
-                    return current
-            except (KeyError, TypeError, IndexError):
-                continue
-
-        return None
-
-    def _is_thinking_complete(self, chunk: dict[str, Any]) -> bool:
-        """
-        Check if the thinking section has completed in this chunk.
-        Different providers may signal this differently.
-        """
-        # Check for explicit thinking completion signals
-        if chunk.get("thinking_complete"):
-            return True
-
-        # Check if we're starting to get regular content (thinking usually comes first)
-        if chunk.get("choices"):
-            choice = chunk["choices"][0]
-            if "delta" in choice and "content" in choice["delta"]:
-                return True
-
-        return False
 
     async def close(self) -> None:
         """Close the HTTP client and unsubscribe from config changes."""
