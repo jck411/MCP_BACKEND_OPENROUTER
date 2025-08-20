@@ -10,7 +10,8 @@ This document provides a complete guide to the MCP (Model Context Protocol) chat
 4. [Flexible LLM Client](#flexible-llm-client)
 5. [Frontend Integration](#frontend-integration)
 6. [Development Guidelines](#development-guidelines)
-7. [Troubleshooting](#troubleshooting)
+7. [Performance Optimizations](#performance-optimizations)
+8. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -553,6 +554,313 @@ async def function_name(
 
 ---
 
+## Performance Optimizations
+
+### Overview
+
+This section consolidates the performance optimizations implemented in the platform to improve streaming responsiveness and reduce latency. The focus areas include minimizing database I/O during streaming, reducing per-chunk processing overhead, and optimizing HTTP client behavior.
+
+### Implemented Optimizations
+
+#### 1. Buffered Delta Persistence (Very High Impact)
+
+**What it does:**
+- Buffers streaming deltas in memory instead of writing every character to SQLite
+- Flushes in batches based on time interval or character thresholds
+- Ensures a final flush at end of streaming
+
+**Performance impact:**
+- Before: every character → 1 SQLite write (~1–5 ms)
+- After: every 200 ms or 1024 chars → 1 SQLite write
+- Result: 10–100x fewer disk operations during streaming
+
+**Configuration:**
+```yaml
+chat:
+  service:
+    streaming:
+      persistence:
+        persist_deltas: false      # Default: false (performance mode)
+        interval_ms: 200          # Flush every 200ms
+        min_chars: 1024           # Or when buffer reaches 1024 chars
+```
+
+**Consequences:**
+- Frontend streaming unaffected (content still streams immediately)
+- Massive DB performance improvement (far fewer writes)
+- Potential data loss if the server crashes before a flush
+- Memory usage grows until buffers are flushed
+
+#### 2. HTTP/2 Client Optimization (High Impact)
+
+**What it does:**
+- Enables HTTP/2 for connection multiplexing
+- Configures connection pooling and keep-alive limits
+- Uses streaming-optimized headers
+
+**Configuration (automatic in client):**
+```python
+httpx.AsyncClient(
+    http2=True,
+    limits=httpx.Limits(
+        max_connections=100,
+        max_keepalive_connections=20,
+    ),
+    trust_env=False,
+    headers={
+        "Accept": "text/event-stream",
+        "Accept-Encoding": "identity",
+    },
+)
+```
+
+**Dependency:**
+```bash
+uv add h2  # Required for HTTP/2 support
+```
+
+#### 3. Per-Chunk Pydantic Elimination (High Impact)
+
+**What it does:**
+- Avoids constructing Pydantic models for every streaming chunk
+- Yields raw dicts; the streaming handler extracts only needed fields
+
+**Before:**
+```python
+yield StreamingChunk.model_validate(chunk)
+```
+
+**After:**
+```python
+yield chunk  # handled by StreamingHandler
+```
+
+#### 4. String Copy Optimization (Medium Impact)
+
+**What it does:**
+- Accumulates content chunks in a list and joins once at the end
+
+**Before:**
+```python
+message_buffer += content
+```
+
+**After:**
+```python
+message_parts.append(content)
+# ... later
+"".join(message_parts)
+```
+
+#### 5. Fast JSON Parsing (Medium Impact)
+
+**What it does:**
+- Uses optimized JSON parsing when available; falls back to stdlib
+
+**Implementation:**
+```python
+def fast_json_loads(s: str) -> dict[str, Any]:
+    try:
+        import orjson as _orjson
+        return cast(dict[str, Any], _orjson.loads(s))
+    except Exception:
+        return cast(dict[str, Any], json.loads(s))
+```
+
+### Configuration Reference
+
+#### New Streaming Persistence Options
+```yaml
+chat:
+  service:
+    streaming:
+      persistence:
+        # Enable/disable delta persistence (default: false)
+        persist_deltas: false
+
+        # Flush interval in milliseconds (default: 200)
+        interval_ms: 200
+
+        # Minimum characters before flush (default: 1024)
+        min_chars: 1024
+```
+
+#### HTTP Client Settings (Automatic)
+```yaml
+# These are automatically configured - no user config needed
+llm:
+  providers:
+    openrouter:
+      # HTTP/2, connection pooling, and streaming headers
+      # are automatically applied to all providers
+```
+
+#### Existing Settings That Affect Performance
+```yaml
+chat:
+  service:
+    # Maximum tool call iterations (affects response time)
+    max_tool_hops: 8
+
+    streaming:
+      # Enable/disable streaming (required for optimizations)
+      enabled: true
+
+  storage:
+    # Repository type affects persistence strategy
+    type: "auto_persist"  # Uses buffered writes
+
+    persistence:
+      # Database path for SQLite
+      db_path: "chat_history.db"
+
+      # Retention policies
+      retention:
+        max_age_hours: 24
+        max_messages: 1000
+        max_sessions: 2
+        cleanup_interval_minutes: 2
+```
+
+### Performance Tuning Guide
+
+#### For Maximum Speed (Development/Testing)
+```yaml
+chat:
+  service:
+    streaming:
+      persistence:
+        persist_deltas: false      # No DB writes during streaming
+        interval_ms: 1000          # Very infrequent flushes
+        min_chars: 2048            # Larger buffers
+```
+
+#### For Balanced Performance (Production)
+```yaml
+chat:
+  service:
+    streaming:
+      persistence:
+        persist_deltas: true       # Enable delta persistence
+        interval_ms: 200           # Moderate flush frequency
+        min_chars: 1024            # Reasonable buffer size
+```
+
+#### For Maximum Reliability (Critical Production)
+```yaml
+chat:
+  service:
+    streaming:
+      persistence:
+        persist_deltas: true       # Enable delta persistence
+        interval_ms: 100           # Frequent flushes
+        min_chars: 512             # Smaller buffers
+```
+
+### Monitoring Performance
+
+**Key metrics to watch:**
+1. Streaming latency (time from first to last character)
+2. Database performance (SQLite write frequency; check for pool exhaustion)
+3. Memory usage (delta buffer sizes during long conversations)
+
+**Logging configuration:**
+```yaml
+chat:
+  service:
+    logging:
+      # Reduce logging overhead in production
+      llm_replies: false          # Disable verbose LLM logging
+      tool_execution: true        # Keep tool execution logs
+      system_prompt: false        # Disable system prompt logging
+```
+
+### Troubleshooting Performance
+
+1. HTTP/2 import error
+   ```bash
+   uv add h2
+   ```
+2. High memory usage
+   - Reduce `min_chars`
+   - Increase flush frequency via `interval_ms`
+3. Database locking
+   - Ensure SQLite WAL mode is enabled
+   - Review concurrent access patterns
+4. Streaming not working
+   - Ensure `chat.service.streaming.enabled: true`
+   - Verify LLM provider configuration
+5. Performance regression
+   - Disable buffered persistence:
+     ```yaml
+     chat:
+       service:
+         streaming:
+           persistence:
+             persist_deltas: false
+     ```
+   - Disable HTTP/2:
+     ```python
+     # In src/clients/llm_client.py
+     http2=False
+     ```
+   - Re-enable per-chunk validation if needed:
+     - Restore `StreamingChunk.model_validate(chunk)` in the streaming handler
+
+### Future Optimizations
+
+Planned improvements:
+- Parallel tool execution (bounded concurrency)
+- Lazy resource loading with caching
+- Connection pre-warming to reduce cold starts
+- Response compression for very long replies
+
+Experimental features:
+- uvloop integration
+- Custom JSON parsers (profile-driven choice)
+- Memory-mapped files for very large histories
+
+### Configuration Quick Reference
+
+```yaml
+# Performance-focused configuration
+chat:
+  service:
+    streaming:
+      enabled: true
+      persistence:
+        persist_deltas: false      # Maximum speed
+        interval_ms: 200           # Moderate flushing
+        min_chars: 1024            # Reasonable buffers
+
+    max_tool_hops: 8               # Prevent infinite loops
+
+    logging:
+      llm_replies: false           # Reduce overhead
+      tool_execution: true         # Keep important logs
+
+llm:
+  active: "openrouter"
+  providers:
+    openrouter:
+      base_url: "https://openrouter.ai/api/v1"
+      model: "openai/gpt-4o-mini"
+      temperature: 0.7
+      max_tokens: 4096
+
+# Storage configuration
+chat:
+  storage:
+    type: "auto_persist"          # Buffered persistence
+    persistence:
+      db_path: "chat_history.db"
+      retention:
+        max_age_hours: 24
+        max_messages: 1000
+        max_sessions: 2
+        cleanup_interval_minutes: 2
+```
+
 ## Troubleshooting
 
 ### Common Issues
@@ -619,22 +927,9 @@ netstat -an | grep 8000
 ps aux | grep python
 ```
 
-### Performance Optimization
+### Performance
 
-#### Configuration Access
-- File modification time checking has minimal overhead
-- Configuration is cached between checks
-- Consider access frequency in high-throughput scenarios
-
-#### Storage Management
-- Configure retention policies in chat storage config
-- Monitor database growth
-- Use auto-persist repository for optimal performance
-
-#### Memory Management
-- Streaming handlers release resources automatically
-- Tool execution contexts are cleaned up after use
-- Consider message history limits for long conversations
+See [Performance Optimizations](#performance-optimizations) for comprehensive tuning guidance and configuration options.
 
 ---
 
