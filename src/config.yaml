@@ -33,7 +33,7 @@ chat:
       
     # Manual save feature (saves entire sessions)
     saved_sessions:
-      enabled: true
+      enabled: false
       retention_days: null    # null for indefinite
       max_saved: 50          # Maximum number of saved sessions
 
@@ -47,6 +47,25 @@ chat:
     # Streaming configuration
     streaming:
       enabled: true  # Enable streaming by default (required setting)
+
+      # Streaming delta persistence (performance vs reliability)
+      #
+      # persist_deltas:
+      #   - false (recommended for dev/max speed): buffer deltas in memory; flush only on interval/size
+      #   - true  (recommended for prod/reliability): write deltas during streaming more frequently
+      # interval_ms:
+      #   - Time-based flush cadence (milliseconds). Increase for fewer DB writes, decrease for reliability
+      # min_chars:
+      #   - Size-based flush threshold (characters). Lower for lower memory usage/higher flush frequency
+      #
+      # Suggested presets:
+      #   - Dev/Max speed:    persist_deltas: false, interval_ms: 1000, min_chars: 2048
+      #   - Balanced Prod:    persist_deltas: true,  interval_ms: 200,  min_chars: 1024
+      #   - Max reliability:  persist_deltas: true,  interval_ms: 100,  min_chars: 512
+      persistence:
+        persist_deltas: false      # Performance mode: buffer deltas, tolerate potential loss on crash
+        interval_ms: 200           # Flush every 200ms
+        min_chars: 1024            # Or when buffer reaches 1024 chars
 
     # Tool execution configuration
     max_tool_hops: 8  # Maximum number of recursive tool calls to prevent infinite loops
@@ -64,8 +83,9 @@ chat:
       tool_execution: true
       tool_results: true
       result_truncate_length: 200
-      system_prompt: true  # Log the generated system prompt during initialization
-      llm_replies: true  # Log ALL LLM replies including internal ones not sent to user
+      # Reduce logging overhead in production (can be set to true while debugging)
+      system_prompt: false  # Avoid logging large system prompts in prod
+      llm_replies: false    # Avoid logging every token/reply in prod
       llm_reply_truncate_length: 500  # Truncate length for LLM reply logs
 
 # LLM Configuration - Ready for ANY parameters and reasoning models!
