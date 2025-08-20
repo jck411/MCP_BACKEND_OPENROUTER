@@ -22,7 +22,6 @@ from typing import Any
 
 from mcp import ClientSession, McpError, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
-from pydantic import AnyUrl
 
 
 class MCPClient:
@@ -381,8 +380,7 @@ class MCPClient:
             )
 
         try:
-            resource_uri = AnyUrl(uri)
-            return await self.session.read_resource(resource_uri)
+            return await self.session.read_resource(uri)
         except McpError as e:
             logging.error(
                 f"MCP error reading resource '{uri}' from {self.name}: "
