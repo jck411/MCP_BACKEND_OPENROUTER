@@ -7,7 +7,7 @@ This module defines the repository protocol and utility functions for chat histo
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from .models import ChatEvent
 
@@ -102,3 +102,17 @@ class ChatRepository(Protocol):
     ) -> ChatEvent:
         """Persist final assistant message to repository."""
         ...
+
+
+# Optional saved-sessions capabilities
+@runtime_checkable
+class SavedSessionsRepository(Protocol):
+    """Protocol for repositories that support manual saved sessions."""
+
+    async def save_session(
+        self, conversation_id: str, name: str | None = None
+    ) -> str: ...
+
+    async def list_saved_sessions(self) -> list[dict[str, Any]]: ...
+
+    async def load_saved_session(self, saved_id: str) -> list[ChatEvent]: ...

@@ -5,6 +5,7 @@ This module provides a thin communication layer between the frontend and chat se
 It handles WebSocket connections and message routing only.
 """
 
+import contextlib
 import json
 import logging
 import uuid
@@ -19,6 +20,8 @@ from src.chat import ChatOrchestrator
 from src.chat.models import ChatMessage
 from src.config import Configuration
 from src.history import ChatRepository
+from src.history.models import ChatEvent
+from src.history.repository import SavedSessionsRepository
 
 # TYPE_CHECKING imports to avoid circular imports
 if TYPE_CHECKING:
@@ -53,7 +56,7 @@ class WebSocketResponse(BaseModel):
     """WebSocket response structure."""
 
     request_id: str
-    status: str  # "processing", "streaming", "completed", "error"
+    status: str  # "processing", "chunk", "completed", "init", "error"
     chunk: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -121,25 +124,32 @@ class WebSocketServer:
 
         # Session management endpoints (AutoPersistRepo)
         @router.post("/sessions/{conversation_id}/save")
-        async def save_session(conversation_id: str, name: str | None = None):  # type: ignore
-            if not hasattr(self.repo, "save_session"):
-                return {"error": "Saved sessions are disabled"}
-            saved_id = await self.repo.save_session(conversation_id, name)
-            return {"saved_id": saved_id}
+        async def save_session(
+            conversation_id: str, name: str | None = None
+        ) -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
+            if isinstance(self.repo, SavedSessionsRepository):
+                saved_id: str = await self.repo.save_session(conversation_id, name)
+                return {"saved_id": saved_id}
+            return {"error": "Saved sessions are disabled"}
 
         @router.get("/sessions")
-        async def list_sessions():  # type: ignore
-            if not hasattr(self.repo, "list_saved_sessions"):
-                return []
-            return await self.repo.list_saved_sessions()
+        async def list_sessions() -> list[dict[str, Any]]:  # type: ignore
+            if isinstance(self.repo, SavedSessionsRepository):
+                sessions: list[dict[str, Any]] = await self.repo.list_saved_sessions()
+                return sessions
+            return []
 
         @router.get("/sessions/{saved_id}")
-        async def load_session(saved_id: str):  # type: ignore
-            if not hasattr(self.repo, "load_saved_session"):
-                return {"error": "Saved sessions are disabled"}
-            events = await self.repo.load_saved_session(saved_id)
-            # Return as plain dicts for API consumers
-            return [e.model_dump() for e in events]
+        async def load_session(saved_id: str) -> list[dict[str, Any]] | dict[str, str]:  # type: ignore
+            if isinstance(self.repo, SavedSessionsRepository):
+                events: list[ChatEvent] = await self.repo.load_saved_session(saved_id)
+                # Return as plain dicts for API consumers
+                return [ev.model_dump() for ev in events]
+            return {"error": "Saved sessions are disabled"}
+
+        # Prevent static analyzers from marking route handlers as unused
+        __keep_for_pyright = (save_session, list_sessions, load_session)
+        del __keep_for_pyright
 
         app.include_router(router)
 
@@ -163,32 +173,25 @@ class WebSocketServer:
                 else:
                     # Unknown message format
                     logger.warning(f"Unknown message format: {message_data}")
-                    await websocket.send_text(
-                        json.dumps(
-                            {
-                                "status": "error",
-                                "chunk": {
-                                    "error": (
-                                        "Unknown message format. "
-                                        "Expected 'action': 'chat' or 'clear_session'"
-                                    )
-                                },
-                            }
-                        )
+                    await self._send_error_response(
+                        websocket,
+                        message_data.get("request_id", "unknown"),
+                        (
+                            "Unknown message format. "
+                            "Expected 'action': 'chat' or 'clear_session'"
+                        ),
                     )
 
         except WebSocketDisconnect:
             logger.info("WebSocket disconnected")
         except Exception as e:
             logger.error(f"WebSocket error: {e}")
-            await websocket.send_text(
-                json.dumps(
-                    {
-                        "status": "error",
-                        "chunk": {"error": f"Server error: {e!s}"},
-                    }
+            with contextlib.suppress(Exception):
+                await self._send_error_response(
+                    websocket,
+                    locals().get("message_data", {}).get("request_id", "unknown"),
+                    f"Server error: {e!s}",
                 )
-            )
         finally:
             self._disconnect_websocket(websocket)
 
@@ -275,7 +278,8 @@ class WebSocketServer:
             # Get current conversation_id
             old_conversation_id = self.conversation_ids.get(websocket, "")
 
-            # AutoPersist uses periodic full wipe logic; returns True when a full wipe occurs
+            # AutoPersist uses periodic full wipe logic
+            # Returns True when a full wipe occurs
             full_wipe_occurred = await self.repo.handle_clear_session()
             if full_wipe_occurred:
                 retention_conf = (
@@ -300,8 +304,9 @@ class WebSocketServer:
                 new_conversation_id = str(uuid.uuid4())
                 self.conversation_ids[websocket] = new_conversation_id
                 logger.info(
-                    f"Full wipe: Session cleared: {old_conversation_id} -> "
-                    f"{new_conversation_id}"
+                    "Full wipe: Session cleared: %s -> %s",
+                    old_conversation_id,
+                    new_conversation_id,
                 )
             else:
                 new_conversation_id = old_conversation_id  # Keep same conversation
@@ -317,7 +322,7 @@ class WebSocketServer:
                 json.dumps(
                     {
                         "request_id": request_id,
-                        "status": "complete",
+                        "status": "completed",
                         "chunk": {
                             "type": "session_cleared",
                             "metadata": {
@@ -364,7 +369,7 @@ class WebSocketServer:
             json.dumps(
                 {
                     "request_id": request_id,
-                    "status": "complete",
+                    "status": "completed",
                     "chunk": {},
                 }
             )
@@ -402,7 +407,7 @@ class WebSocketServer:
             json.dumps(
                 {
                     "request_id": request_id,
-                    "status": "complete",
+                    "status": "completed",
                     "chunk": {},
                 }
             )

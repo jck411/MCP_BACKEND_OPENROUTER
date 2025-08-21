@@ -262,11 +262,11 @@ class StreamingHandler:
         finish_reason: str | None = None
 
         # Buffered delta persistence configuration (defaults favor performance)
-        streaming_conf: dict[str, Any] = self.chat_conf.get("streaming", {})
-        persistence_conf: dict[str, Any] = streaming_conf.get("persistence", {})
-        persist_deltas: bool = bool(persistence_conf.get("persist_deltas", False))
-        persist_interval_ms: int = int(persistence_conf.get("interval_ms", 200))
-        persist_min_chars: int = int(persistence_conf.get("min_chars", 1024))
+        (
+            persist_deltas,
+            persist_interval_ms,
+            persist_min_chars,
+        ) = self._get_persistence_config()
 
         pending_delta_buffer: str = ""
         last_persist_time: float = time.monotonic()
@@ -288,7 +288,9 @@ class StreamingHandler:
                 )
             ):
                 # Persist aggregated delta as a single meta event
-                unique_delta_request_id = f"assistant_delta:{user_request_id}:{hop_number}:{int(time.time() * 1000)}:{uuid.uuid4().hex[:8]}"
+                unique_delta_request_id = self._generate_delta_request_id(
+                    user_request_id, hop_number
+                )
                 delta_event = ChatEvent(
                     conversation_id=conversation_id,
                     seq=0,  # Repository will assign sequence number
@@ -460,6 +462,23 @@ class StreamingHandler:
             "model": self.llm_client.config.get("model", ""),
         }
         log_llm_reply(reply_data, "Streaming initial response", self.chat_conf)
+
+    def _get_persistence_config(self) -> tuple[bool, int, int]:
+        """
+        Return persistence configuration: (persist_deltas, interval_ms, min_chars).
+        """
+        streaming_conf: dict[str, Any] = self.chat_conf.get("streaming", {})
+        persistence_conf: dict[str, Any] = streaming_conf.get("persistence", {})
+        persist_deltas: bool = bool(persistence_conf.get("persist_deltas", False))
+        persist_interval_ms: int = int(persistence_conf.get("interval_ms", 200))
+        persist_min_chars: int = int(persistence_conf.get("min_chars", 1024))
+        return persist_deltas, persist_interval_ms, persist_min_chars
+
+    def _generate_delta_request_id(self, user_request_id: str, hop_number: int) -> str:
+        """Generate a compact unique request id for delta persistence."""
+        timestamp_ms = int(time.time() * 1000)
+        suffix = uuid.uuid4().hex[:8]
+        return f"assistant_delta:{user_request_id}:{hop_number}:{timestamp_ms}:{suffix}"
 
     def _accumulate_tool_call_delta(
         self, current_tool_calls: list[dict[str, Any]], delta: ToolCallDelta
