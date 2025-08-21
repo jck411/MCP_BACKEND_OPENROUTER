@@ -124,14 +124,15 @@ class AutoPersistRepo(SQLiteRepo):
         async with aiosqlite.connect(self.db_path) as db:
             cleanup_count = 0
 
-            # Age-based cleanup
+            # Age-based cleanup (use epoch seconds for robust comparison)
             if self.max_age_hours is not None:
-                await db.execute(f"""
+                await db.execute(
+                    """
                     DELETE FROM chat_events
-                    WHERE datetime(created_at) < datetime(
-                        'now', '-{self.max_age_hours} hours'
-                    )
-                """)
+                    WHERE created_at_unix < CAST(strftime('%s','now') AS INTEGER) - ?
+                    """,
+                    (int(self.max_age_hours * 3600),),
+                )
                 result = await db.execute("SELECT changes()")
                 row = await result.fetchone()
                 age_deleted = row[0] if row else 0
@@ -157,7 +158,7 @@ class AutoPersistRepo(SQLiteRepo):
                         DELETE FROM chat_events
                         WHERE id IN (
                             SELECT id FROM chat_events
-                            ORDER BY created_at ASC
+                            ORDER BY created_at_unix ASC
                             LIMIT ?
                         )
                     """,
@@ -183,7 +184,7 @@ class AutoPersistRepo(SQLiteRepo):
                     excess_sessions = total_sessions - self.max_sessions
                     async with db.execute(
                         """
-                        SELECT conversation_id, MIN(created_at) as first_message
+                        SELECT conversation_id, MIN(created_at_unix) as first_message
                         FROM chat_events
                         GROUP BY conversation_id
                         ORDER BY first_message ASC

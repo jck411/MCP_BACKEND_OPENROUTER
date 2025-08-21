@@ -2,8 +2,8 @@ _runtime_config:
   created_from_defaults: true
   default_config_path: config.yaml
   is_runtime_config: true
-  last_modified: 1755765961.514758
-  version: 15
+  last_modified: 1755770132.6906915
+  version: 16
 chat:
   service:
     logging:

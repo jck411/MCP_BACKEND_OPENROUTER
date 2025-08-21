@@ -65,6 +65,7 @@ class SQLiteRepo(ChatRepository):
                         model TEXT,
                         stop_reason TEXT,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_at_unix INTEGER,
                         extra TEXT,
                         raw TEXT,
                         request_id TEXT GENERATED ALWAYS AS (
@@ -73,7 +74,48 @@ class SQLiteRepo(ChatRepository):
                     )
                 """)
 
-                # Create indexes
+                # Lightweight migration: ensure created_at_unix exists and is populated
+                # Check if column exists; add if missing
+                has_created_at_unix = False
+                try:
+                    async with db.execute("PRAGMA table_info('chat_events')") as cur:
+                        cols = await cur.fetchall()
+                        col_names = {row[1] for row in cols}
+                    has_created_at_unix = "created_at_unix" in col_names
+                    if not has_created_at_unix:
+                        await db.execute(
+                            "ALTER TABLE chat_events ADD COLUMN created_at_unix INTEGER"
+                        )
+                        has_created_at_unix = True
+                except Exception:
+                    pass
+
+                # Backfill nulls using best-effort parsing on existing created_at
+                if has_created_at_unix:
+                    try:
+                        await db.execute(
+                            """
+                            UPDATE chat_events
+                            SET created_at_unix = COALESCE(
+                                created_at_unix,
+                                CAST(
+                                    strftime(
+                                        '%s',
+                                        CASE
+                                            WHEN instr(REPLACE(REPLACE(created_at, 'T', ' '), '+00:00', ''), 'Z') > 0
+                                                THEN REPLACE(REPLACE(created_at, 'T', ' '), 'Z', '')
+                                            ELSE REPLACE(REPLACE(created_at, 'T', ' '), '+00:00', '')
+                                        END
+                                    ) AS INTEGER
+                                )
+                            )
+                            WHERE created_at_unix IS NULL
+                            """
+                        )
+                    except Exception:
+                        pass
+
+                # Create indexes (guard created_at_unix index if column exists)
                 await db.execute("""
                     CREATE INDEX IF NOT EXISTS idx_conversation
                     ON chat_events(conversation_id)
@@ -86,6 +128,11 @@ class SQLiteRepo(ChatRepository):
                     CREATE INDEX IF NOT EXISTS idx_created
                     ON chat_events(created_at)
                 """)
+                if has_created_at_unix:
+                    await db.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_created_unix
+                        ON chat_events(created_at_unix)
+                    """)
                 await db.execute("""
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_request_id
                     ON chat_events(conversation_id, request_id)
@@ -119,6 +166,7 @@ class SQLiteRepo(ChatRepository):
             "model": event.model,
             "stop_reason": event.stop_reason,
             "created_at": event.created_at.isoformat(),
+            "created_at_unix": int(event.created_at.timestamp()),
             "extra": json.dumps(event.extra) if event.extra else None,
             "raw": json.dumps(event.raw) if event.raw else None,
         }
@@ -251,7 +299,7 @@ class SQLiteRepo(ChatRepository):
                 """
                 SELECT conversation_id
                 FROM (
-                    SELECT conversation_id, MAX(created_at) AS last_time
+                    SELECT conversation_id, MAX(created_at_unix) AS last_time
                     FROM chat_events
                     GROUP BY conversation_id
                 )
