@@ -89,6 +89,7 @@ class StreamingHandler:
         )
 
         full_content = ""
+        had_text_deltas = False
 
         # Initial response streaming - collect complete response
         raw_assistant_msg = None
@@ -98,12 +99,14 @@ class StreamingHandler:
             if isinstance(chunk, ChatMessage):
                 if chunk.type == "text":
                     full_content += chunk.content
+                    had_text_deltas = True
                 logger.debug("→ Frontend: text delta, length=%d", len(chunk.content))
                 yield chunk
             else:
                 # This is our completed dict response
                 raw_assistant_msg = chunk
-                if raw_assistant_msg.get("content"):
+                # Only add final content if no deltas were received
+                if raw_assistant_msg.get("content") and not had_text_deltas:
                     full_content += raw_assistant_msg["content"]
 
         if not raw_assistant_msg:
@@ -192,6 +195,7 @@ class StreamingHandler:
                 context.conv.add_message(tool_msg)  # Get follow-up response
             logger.info("→ LLM: requesting follow-up response for hop %d", hops + 1)
             raw_assistant_msg = None
+            had_text_deltas = False
             async for chunk in self.stream_llm_response_with_deltas(
                 context.conv,
                 context.tools_payload,
@@ -202,10 +206,12 @@ class StreamingHandler:
                 if isinstance(chunk, ChatMessage):
                     if chunk.type == "text":
                         context.full_content += chunk.content
+                        had_text_deltas = True
                     yield chunk
                 else:
                     raw_assistant_msg = chunk
-                    if raw_assistant_msg.get("content"):
+                    # Only add final content if no deltas were received in this hop
+                    if raw_assistant_msg.get("content") and not had_text_deltas:
                         context.full_content += raw_assistant_msg["content"]
 
             # Convert new response to typed model

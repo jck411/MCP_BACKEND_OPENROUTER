@@ -2,20 +2,24 @@ _runtime_config:
   created_from_defaults: true
   default_config_path: config.yaml
   is_runtime_config: true
-  last_modified: 1755556392.7026515
-  version: 13
+  last_modified: 1755756398.3827431
+  version: 14
 chat:
   service:
     logging:
-      llm_replies: true
+      llm_replies: false
       llm_reply_truncate_length: 500
       result_truncate_length: 200
-      system_prompt: true
+      system_prompt: false
       tool_execution: true
       tool_results: true
     max_tool_hops: 8
     streaming:
       enabled: true
+      persistence:
+        interval_ms: 200
+        min_chars: 1024
+        persist_deltas: false
     system_prompt: "You are a helpful assistant with a sense of humor.\nYou have access\
       \ to to a list of tools like setting your own configuration. \n"
     tool_notifications:
@@ -32,10 +36,9 @@ chat:
         max_messages: 1000
         max_sessions: 2
     saved_sessions:
-      enabled: true
+      enabled: false
       max_saved: 50
       retention_days: null
-    type: auto_persist
   websocket:
     allow_credentials: true
     allow_origins:
@@ -76,7 +79,7 @@ llm:
     openai:
       base_url: https://api.openai.com/v1
       max_tokens: 4096
-      model: gpt-4omini
+      model: gpt-4o-mini
       temperature: 0.7
       top_p: 1.0
     openai_reasoning:

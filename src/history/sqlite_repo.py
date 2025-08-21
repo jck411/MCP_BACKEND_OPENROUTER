@@ -244,12 +244,22 @@ class SQLiteRepo(ChatRepository):
     async def list_conversations(self) -> list[str]:
         await self._ensure_initialized()
 
-        async with (
-            aiosqlite.connect(self.db_path) as db,
-            db.execute("SELECT DISTINCT conversation_id FROM chat_events") as cursor,
-        ):
-            rows = await cursor.fetchall()
-            return [row[0] for row in rows]
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            # Order by last activity so the last element is the most recent
+            async with db.execute(
+                """
+                SELECT conversation_id
+                FROM (
+                    SELECT conversation_id, MAX(created_at) AS last_time
+                    FROM chat_events
+                    GROUP BY conversation_id
+                )
+                ORDER BY last_time
+                """
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [row[0] for row in rows]
 
     async def get_event_by_request_id(
         self, conversation_id: str, request_id: str
@@ -491,6 +501,19 @@ class SQLiteRepo(ChatRepository):
         logger.info(
             "→ Repository: persisting assistant message for request_id=%s", request_id
         )
+
+        # Defensive: collapse accidental exact duplication (XX -> X)
+        def _collapse_double(text: str) -> str:
+            if not text:
+                return text
+            n = len(text)
+            if n % 2 == 0:
+                half = n // 2
+                if text[:half] == text[half:]:
+                    return text[:half]
+            return text
+
+        content = _collapse_double(content)
 
         assistant_ev = ChatEvent(
             conversation_id=conversation_id,

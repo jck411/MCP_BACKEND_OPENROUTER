@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
+from typing import Any, cast
 
 import yaml
 from mcp.server.fastmcp import FastMCP
@@ -34,8 +35,17 @@ MAX_PENALTY = 2.0
 mcp = FastMCP("Demo")
 
 
+# Path helpers
+HOME_DIR = Path.home()
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+RESOURCES_DIR = HOME_DIR / "Documents" / "MCP.resources"
+RUNTIME_CONFIG_PATH = PROJECT_ROOT / "src" / "runtime_config.yaml"
+DEFAULT_CONFIG_PATH = PROJECT_ROOT / "src" / "config.yaml"
+
+
 # File resources
 if TOOL_CONFIG["desktop_resources"]:
+
     @mcp.resource(
         "resource://desktop-files",
         name="DesktopListing",
@@ -44,13 +54,19 @@ if TOOL_CONFIG["desktop_resources"]:
     )
     def desktop() -> str:
         """List the files in the MCP resources directory"""
-        desktop = Path("/home/jack/Documents/MCP.resources")
-        files = [f.name for f in desktop.iterdir() if f.is_file()]
-        return "\n".join(f"- {file}" for file in sorted(files))
+        try:
+            if not RESOURCES_DIR.exists() or not RESOURCES_DIR.is_dir():
+                return f"Resource directory not found: {RESOURCES_DIR}"
+            files = [f.name for f in RESOURCES_DIR.iterdir() if f.is_file()]
+            return "\n".join(f"- {file}" for file in sorted(files))
+        except Exception as exc:
+            logging.exception("Failed to list resources directory")
+            return f"Error reading resource directory {RESOURCES_DIR}: {exc}"
 
 
 # Basic math tools
 if TOOL_CONFIG["math_tools"]:
+
     @mcp.tool()
     def sum(a: int, b: int) -> int:
         """Add two numbers"""
@@ -69,10 +85,11 @@ if TOOL_CONFIG["math_tools"]:
 
 # Advanced math tools (disabled by default)
 if TOOL_CONFIG["advanced_math"]:
+
     @mcp.tool()
     def power(a: int, b: int) -> int:
         """Raise first number to the power of second"""
-        return a ** b
+        return a**b
 
     @mcp.tool()
     def divide(a: float, b: float) -> float:
@@ -84,37 +101,58 @@ if TOOL_CONFIG["advanced_math"]:
 
 # Configuration tools
 if TOOL_CONFIG["config_tools"]:
-    def _load_config() -> dict:
-        """Helper to load and parse the runtime config"""
-        config_path = Path("/home/jack/MCP_BACKEND_OPENROUTER/src/runtime_config.yaml")
-        config_text = config_path.read_text()
-        result = yaml.safe_load(config_text)
-        return result if isinstance(result, dict) else {}
 
-    def _get_active_provider_config() -> tuple[str, dict]:
+    def _load_config() -> dict[str, Any]:
+        """Helper to load and parse the runtime config"""
+        try:
+            config_text = RUNTIME_CONFIG_PATH.read_text()
+        except FileNotFoundError:
+            logging.info(
+                "Runtime config not found at %s; returning empty config",
+                RUNTIME_CONFIG_PATH,
+            )
+            return {}
+        except Exception:
+            logging.exception(
+                "Failed reading runtime config from %s", RUNTIME_CONFIG_PATH
+            )
+            return {}
+        result = yaml.safe_load(config_text)
+        return cast(dict[str, Any], result) if isinstance(result, dict) else {}
+
+    def _get_active_provider_config() -> tuple[str, dict[str, Any]]:
         """Helper to get active provider name and its config"""
-        config = _load_config()
-        llm_config = config.get("llm", {}) if isinstance(config, dict) else {}
-        active_provider = llm_config.get("active", "groq")
-        providers = llm_config.get("providers", {})
-        provider_config = providers.get(active_provider, {})
+        config: dict[str, Any] = _load_config()
+        llm_config: dict[str, Any] = cast(dict[str, Any], config.get("llm", {}))
+        active_provider: str = cast(str, llm_config.get("active", "groq"))
+        providers: dict[str, Any] = cast(
+            dict[str, Any], llm_config.get("providers", {})
+        )
+        provider_config: dict[str, Any] = cast(
+            dict[str, Any], providers.get(active_provider, {})
+        )
         return active_provider, provider_config
 
-    def _save_config(config: dict) -> None:
+    def _save_config(config: dict[str, Any]) -> None:
         """Helper to save the runtime config"""
-        config_path = Path("/home/jack/MCP_BACKEND_OPENROUTER/src/runtime_config.yaml")
-        with config_path.open("w") as f:
-            yaml.dump(config, f, default_flow_style=False, indent=2)
+        try:
+            RUNTIME_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with RUNTIME_CONFIG_PATH.open("w") as f:
+                yaml.safe_dump(config, f, default_flow_style=False, indent=2)
+        except Exception:
+            logging.exception(
+                "Failed writing runtime config to %s", RUNTIME_CONFIG_PATH
+            )
 
     @mcp.tool()
     def get_system_prompt() -> str:
         """Get the current system prompt configuration"""
-        config = _load_config()
-        chat_config = (
-            config.get("chat", {}).get("service", {})
-            if isinstance(config, dict) else {}
+        config: dict[str, Any] = _load_config()
+        chat: dict[str, Any] = cast(dict[str, Any], config.get("chat", {}))
+        service: dict[str, Any] = cast(dict[str, Any], chat.get("service", {}))
+        system_prompt: str = cast(
+            str, service.get("system_prompt", "No system prompt configured")
         )
-        system_prompt = chat_config.get("system_prompt", "No system prompt configured")
         return f"System prompt: {system_prompt}"
 
     @mcp.tool()
@@ -126,10 +164,12 @@ if TOOL_CONFIG["config_tools"]:
         top_p = provider_config.get("top_p", "not set")
         top_k = provider_config.get("top_k", "not set")
 
-        return (f"Sampling parameters for {active_provider}:\n"
-                f"- Temperature: {temperature}\n"
-                f"- Top-p: {top_p}\n"
-                f"- Top-k: {top_k}")
+        return (
+            f"Sampling parameters for {active_provider}:\n"
+            f"- Temperature: {temperature}\n"
+            f"- Top-p: {top_p}\n"
+            f"- Top-k: {top_k}"
+        )
 
     @mcp.tool()
     def get_length_parameters() -> str:
@@ -140,10 +180,12 @@ if TOOL_CONFIG["config_tools"]:
         min_length = provider_config.get("min_length", "not set")
         max_completion_tokens = provider_config.get("max_completion_tokens", "not set")
 
-        return (f"Length parameters for {active_provider}:\n"
-                f"- Max tokens: {max_tokens}\n"
-                f"- Min length: {min_length}\n"
-                f"- Max completion tokens: {max_completion_tokens}")
+        return (
+            f"Length parameters for {active_provider}:\n"
+            f"- Max tokens: {max_tokens}\n"
+            f"- Min length: {min_length}\n"
+            f"- Max completion tokens: {max_completion_tokens}"
+        )
 
     @mcp.tool()
     def get_penalty_parameters() -> str:
@@ -154,10 +196,12 @@ if TOOL_CONFIG["config_tools"]:
         frequency_penalty = provider_config.get("frequency_penalty", "not set")
         repetition_penalty = provider_config.get("repetition_penalty", "not set")
 
-        return (f"Penalty parameters for {active_provider}:\n"
-                f"- Presence penalty: {presence_penalty}\n"
-                f"- Frequency penalty: {frequency_penalty}\n"
-                f"- Repetition penalty: {repetition_penalty}")
+        return (
+            f"Penalty parameters for {active_provider}:\n"
+            f"- Presence penalty: {presence_penalty}\n"
+            f"- Frequency penalty: {frequency_penalty}\n"
+            f"- Repetition penalty: {repetition_penalty}"
+        )
 
     @mcp.tool()
     def get_stopping_criteria() -> str:
@@ -168,10 +212,12 @@ if TOOL_CONFIG["config_tools"]:
         stop_tokens = provider_config.get("stop_tokens", "not set")
         end_of_text = provider_config.get("end_of_text", "not set")
 
-        return (f"Stopping criteria for {active_provider}:\n"
-                f"- Stop sequences: {stop_sequences}\n"
-                f"- Stop tokens: {stop_tokens}\n"
-                f"- End of text: {end_of_text}")
+        return (
+            f"Stopping criteria for {active_provider}:\n"
+            f"- Stop sequences: {stop_sequences}\n"
+            f"- Stop tokens: {stop_tokens}\n"
+            f"- End of text: {end_of_text}"
+        )
 
     # Configuration editing tools
     @mcp.tool()
@@ -183,7 +229,7 @@ if TOOL_CONFIG["config_tools"]:
         if not prompt.strip():
             return "Error: System prompt cannot be empty"
 
-        config = _load_config()
+        config: dict[str, Any] = _load_config()
         # Ensure chat.service structure exists
         if "chat" not in config:
             config["chat"] = {}
@@ -206,10 +252,12 @@ if TOOL_CONFIG["config_tools"]:
     def set_temperature(temperature: float) -> str:
         """Set the temperature for the active LLM provider (0.0-2.0)"""
         if not MIN_TEMPERATURE <= temperature <= MAX_TEMPERATURE:
-            return (f"Error: Temperature must be between {MIN_TEMPERATURE} "
-                    f"and {MAX_TEMPERATURE}")
+            return (
+                f"Error: Temperature must be between {MIN_TEMPERATURE} "
+                f"and {MAX_TEMPERATURE}"
+            )
 
-        config = _load_config()
+        config: dict[str, Any] = _load_config()
         active_provider, _ = _get_active_provider_config()
 
         # Update the active provider's temperature
@@ -225,7 +273,7 @@ if TOOL_CONFIG["config_tools"]:
         if max_tokens > MAX_TOKENS_LIMIT:
             return f"Error: max_tokens too large (max {MAX_TOKENS_LIMIT})"
 
-        config = _load_config()
+        config: dict[str, Any] = _load_config()
         active_provider, _ = _get_active_provider_config()
 
         config["llm"]["providers"][active_provider]["max_tokens"] = max_tokens
@@ -238,7 +286,7 @@ if TOOL_CONFIG["config_tools"]:
         if not 0.0 <= top_p <= 1.0:
             return "Error: top_p must be between 0.0 and 1.0"
 
-        config = _load_config()
+        config: dict[str, Any] = _load_config()
         active_provider, _ = _get_active_provider_config()
 
         config["llm"]["providers"][active_provider]["top_p"] = top_p
@@ -248,8 +296,12 @@ if TOOL_CONFIG["config_tools"]:
     @mcp.tool()
     def switch_llm_provider(provider: str) -> str:
         """Switch to a different LLM provider (groq, openai, openrouter, etc.)"""
-        config = _load_config()
-        available_providers = list(config.get("llm", {}).get("providers", {}).keys())
+        config: dict[str, Any] = _load_config()
+        providers: dict[str, Any] = cast(
+            dict[str, Any],
+            cast(dict[str, Any], config.get("llm", {})).get("providers", {}),
+        )
+        available_providers = list(providers.keys())
 
         if provider not in available_providers:
             available_str = ", ".join(available_providers)
@@ -263,10 +315,12 @@ if TOOL_CONFIG["config_tools"]:
     def set_presence_penalty(penalty: float) -> str:
         """Set the presence_penalty for the active LLM provider (-2.0 to 2.0)"""
         if not MIN_PENALTY <= penalty <= MAX_PENALTY:
-            return (f"Error: presence_penalty must be between {MIN_PENALTY} "
-                    f"and {MAX_PENALTY}")
+            return (
+                f"Error: presence_penalty must be between {MIN_PENALTY} "
+                f"and {MAX_PENALTY}"
+            )
 
-        config = _load_config()
+        config: dict[str, Any] = _load_config()
         active_provider, _ = _get_active_provider_config()
 
         config["llm"]["providers"][active_provider]["presence_penalty"] = penalty
@@ -277,8 +331,10 @@ if TOOL_CONFIG["config_tools"]:
     def set_frequency_penalty(penalty: float) -> str:
         """Set the frequency_penalty for the active LLM provider (-2.0 to 2.0)"""
         if not MIN_PENALTY <= penalty <= MAX_PENALTY:
-            return (f"Error: frequency_penalty must be between {MIN_PENALTY} "
-                    f"and {MAX_PENALTY}")
+            return (
+                f"Error: frequency_penalty must be between {MIN_PENALTY} "
+                f"and {MAX_PENALTY}"
+            )
 
         config = _load_config()
         active_provider, _ = _get_active_provider_config()
@@ -294,19 +350,27 @@ if TOOL_CONFIG["config_tools"]:
         Writes defaults and updates metadata to trigger reload.
         """
         try:
-            default_path = Path("/home/jack/MCP_BACKEND_OPENROUTER/src/config.yaml")
-            runtime_path = Path("/home/jack/MCP_BACKEND_OPENROUTER/src/runtime_config.yaml")  # noqa: E501
+            default_path = DEFAULT_CONFIG_PATH
+            runtime_path = RUNTIME_CONFIG_PATH
+
+            if not default_path.exists():
+                return f"Error: Default config file not found at {default_path}"
 
             default_cfg = yaml.safe_load(default_path.read_text())
             if not isinstance(default_cfg, dict):
                 return "Error: Default config is not a valid mapping"
 
             # Preserve and bump version if present to aid change tracking
-            current_version = 0
+            current_version: int = 0
             try:
-                existing = yaml.safe_load(runtime_path.read_text())
-                if isinstance(existing, dict):
-                    current_version = existing.get("_runtime_config", {}).get("version", 0)  # noqa: E501
+                existing_raw = yaml.safe_load(runtime_path.read_text())
+                existing: dict[str, Any] = (
+                    existing_raw if isinstance(existing_raw, dict) else {}
+                )
+                runtime_meta: dict[str, Any] = cast(
+                    dict[str, Any], existing.get("_runtime_config", {})
+                )
+                current_version = cast(int, runtime_meta.get("version", 0))
             except Exception:
                 pass
 
@@ -318,6 +382,7 @@ if TOOL_CONFIG["config_tools"]:
                 "created_from_defaults": True,
             }
 
+            runtime_path.parent.mkdir(parents=True, exist_ok=True)
             with runtime_path.open("w") as f:
                 yaml.safe_dump(default_cfg, f, default_flow_style=False, indent=2)
 
@@ -325,8 +390,11 @@ if TOOL_CONFIG["config_tools"]:
         except Exception as e:
             logging.exception("Failed to reset runtime configuration")
             return f"Error resetting runtime configuration: {e}"
+
+
 # Conversation prompts
 if TOOL_CONFIG["conversation_prompts"]:
+
     @mcp.prompt()
     def summarize_conversation() -> str:
         """Create a summary of the current conversation"""

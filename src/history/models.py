@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -18,11 +17,6 @@ from pydantic import BaseModel, Field
 
 Role = Literal["system", "user", "assistant", "tool"]
 
-
-class StorageMode(str, Enum):
-    """Available storage modes for chat history."""
-
-    AUTO_PERSIST = "auto_persist"
 
 
 # ---------- Content models ----------

@@ -11,14 +11,14 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ValidationError
 
 from src.chat import ChatOrchestrator
 from src.chat.models import ChatMessage
 from src.config import Configuration
-from src.history import AutoPersistRepo, ChatRepository
+from src.history import ChatRepository
 
 # TYPE_CHECKING imports to avoid circular imports
 if TYPE_CHECKING:
@@ -96,6 +96,7 @@ class WebSocketServer:
     def _create_app(self) -> FastAPI:
         """Create and configure FastAPI app."""
         app = FastAPI(title="MCP WebSocket Chat Server")
+        router = APIRouter()
 
         # Add CORS middleware
         app.add_middleware(
@@ -117,6 +118,30 @@ class WebSocketServer:
         @app.get("/health")
         async def health():  # type: ignore
             return {"status": "healthy"}
+
+        # Session management endpoints (AutoPersistRepo)
+        @router.post("/sessions/{conversation_id}/save")
+        async def save_session(conversation_id: str, name: str | None = None):  # type: ignore
+            if not hasattr(self.repo, "save_session"):
+                return {"error": "Saved sessions are disabled"}
+            saved_id = await self.repo.save_session(conversation_id, name)
+            return {"saved_id": saved_id}
+
+        @router.get("/sessions")
+        async def list_sessions():  # type: ignore
+            if not hasattr(self.repo, "list_saved_sessions"):
+                return []
+            return await self.repo.list_saved_sessions()
+
+        @router.get("/sessions/{saved_id}")
+        async def load_session(saved_id: str):  # type: ignore
+            if not hasattr(self.repo, "load_saved_session"):
+                return {"error": "Saved sessions are disabled"}
+            events = await self.repo.load_saved_session(saved_id)
+            # Return as plain dicts for API consumers
+            return [e.model_dump() for e in events]
+
+        app.include_router(router)
 
         return app
 
@@ -250,22 +275,24 @@ class WebSocketServer:
             # Get current conversation_id
             old_conversation_id = self.conversation_ids.get(websocket, "")
 
-            # Handle clear session for all repository types
-            full_wipe_occurred = False
-
-            if isinstance(self.repo, AutoPersistRepo):
-                # AutoPersist uses periodic full wipe logic
-                full_wipe_occurred = await self.repo.handle_clear_session()
-                if full_wipe_occurred:
-                    logger.info(
-                        f"Full history wipe occurred on "
-                        f"{self.repo.max_sessions}th clear session"
-                    )
-            else:
-                # Other repos (like InMemoryRepo) always do full clear
-                await self.repo.handle_clear_session()
-                full_wipe_occurred = True
-                logger.info("Memory cleared: All conversation data removed")
+            # AutoPersist uses periodic full wipe logic; returns True when a full wipe occurs
+            full_wipe_occurred = await self.repo.handle_clear_session()
+            if full_wipe_occurred:
+                retention_conf = (
+                    self.config.get("chat", {})
+                    .get("storage", {})
+                    .get("persistence", {})
+                    .get("retention", {})
+                )
+                max_sessions = retention_conf.get("max_sessions")
+                logger.info(
+                    "Full history wipe occurred%s",
+                    (
+                        f" on {max_sessions}th clear session"
+                        if isinstance(max_sessions, int)
+                        else ""
+                    ),
+                )
 
             # Only create new conversation_id if full wipe occurred
             # Otherwise keep the same conversation_id to maintain LLM memory
@@ -452,7 +479,7 @@ class WebSocketServer:
                 return
 
             # Get the most recent conversation (last one in the list)
-            # In SQLite, conversations are ordered by creation time
+            # list_conversations() returns oldest -> newest by last activity
             recent_conversation_id = all_conversations[-1]
             self.conversation_ids[websocket] = recent_conversation_id
 
@@ -472,6 +499,18 @@ class WebSocketServer:
 
             # Send history to frontend as a special message
             history_messages: list[dict[str, Any]] = []
+
+            def _collapse_double(text: str) -> str:
+                # If content is an exact duplication (XX), collapse to X
+                if not text:
+                    return text
+                n = len(text)
+                if n % 2 == 0:
+                    half = n // 2
+                    if text[:half] == text[half:]:
+                        return text[:half]
+                return text
+
             for event in history:
                 if event.type == "user_message":
                     history_messages.append(
@@ -485,7 +524,7 @@ class WebSocketServer:
                     history_messages.append(
                         {
                             "role": "assistant",
-                            "content": str(event.content or ""),
+                            "content": _collapse_double(str(event.content or "")),
                             "timestamp": event.created_at.isoformat(),
                         }
                     )
