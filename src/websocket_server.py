@@ -483,9 +483,9 @@ class WebSocketServer:
                 logger.info(f"Starting new conversation: {conversation_id}")
                 return
 
-            # Get the most recent conversation (last one in the list)
-            # list_conversations() returns oldest -> newest by last activity
-            recent_conversation_id = all_conversations[-1]
+            # Get the most recent conversation (first one in the list)
+            # list_conversations() returns newest -> oldest by last activity
+            recent_conversation_id = all_conversations[0]
             self.conversation_ids[websocket] = recent_conversation_id
 
             # Load conversation history

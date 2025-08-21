@@ -20,8 +20,8 @@ chat:
         interval_ms: 200
         min_chars: 1024
         persist_deltas: false
-    system_prompt: "You are a helpful assistant with a sense of humor.\nYou have access\
-      \ to to a list of tools like setting your own configuration. \n"
+    system_prompt: You are a helpful assistant. Let's test if everything is working
+      correctly.
     tool_notifications:
       enabled: true
       format: '{icon} Executing tool: {tool_name}'
@@ -50,7 +50,7 @@ chat:
     ping_timeout: 10
     port: 8000
 llm:
-  active: openrouter
+  active: groq
   providers:
     anthropic_thinking:
       base_url: https://openrouter.ai/api/v1

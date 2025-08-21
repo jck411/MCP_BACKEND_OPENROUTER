@@ -294,7 +294,7 @@ class SQLiteRepo(ChatRepository):
 
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            # Order by last activity so the last element is the most recent
+            # Order by last activity (newest first) so the first element is the most recent
             async with db.execute(
                 """
                 SELECT conversation_id
@@ -303,7 +303,7 @@ class SQLiteRepo(ChatRepository):
                     FROM chat_events
                     GROUP BY conversation_id
                 )
-                ORDER BY last_time
+                ORDER BY last_time DESC
                 """
             ) as cursor:
                 rows = await cursor.fetchall()

@@ -305,14 +305,26 @@ class LLMClient:
             payload["stream"] = True
 
         # Pass through ALL other parameters from config (except infrastructure ones)
-        excluded_keys = {"base_url", "model"}  # These are handled separately
+        excluded_keys = {
+            "base_url",
+            "model",
+            # Provider-incompatible or confusing keys to strip proactively
+            # Some providers use different names or don't support these
+            "stop_tokens",
+            "end_of_text",
+            "stop_token_ids",
+            "end_token_id",
+        }
         for key, value in self.config.items():
-            if key not in excluded_keys:
+            if key not in excluded_keys and value is not None:
                 payload[key] = value
 
         # Add tools if provided
         if tools:
             payload["tools"] = tools
+
+        # Remove any None values that might have slipped in
+        payload = {k: v for k, v in payload.items() if v is not None}
 
         return payload
 
@@ -381,9 +393,13 @@ class LLMClient:
             )
 
         try:
-            # Convert typed inputs to dict format for API
-            dict_messages = [msg.model_dump() for msg in messages]
-            dict_tools = [tool.model_dump() for tool in tools] if tools else None
+            # Convert typed inputs to dict format for API, omitting None fields
+            dict_messages = [msg.model_dump(exclude_none=True) for msg in messages]
+            dict_tools = (
+                [tool.model_dump(exclude_none=True) for tool in tools]
+                if tools
+                else None
+            )
 
             payload = self._build_payload(dict_messages, dict_tools, stream=False)
 
@@ -465,9 +481,13 @@ class LLMClient:
             return cast(dict[str, Any], json.loads(s))
 
         try:
-            # Convert typed inputs to dict format for API
-            dict_messages = [msg.model_dump() for msg in messages]
-            dict_tools = [tool.model_dump() for tool in tools] if tools else None
+            # Convert typed inputs to dict format for API, omitting None fields
+            dict_messages = [msg.model_dump(exclude_none=True) for msg in messages]
+            dict_tools = (
+                [tool.model_dump(exclude_none=True) for tool in tools]
+                if tools
+                else None
+            )
 
             payload = self._build_payload(dict_messages, dict_tools, stream=True)
 

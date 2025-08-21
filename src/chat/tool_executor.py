@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from mcp import types
 
@@ -43,96 +43,6 @@ class ToolExecutor:
     ):
         self.tool_mgr = tool_mgr
         self.configuration = configuration
-
-    def accumulate_tool_calls(
-        self, current_tool_calls: list[dict[str, Any]], tool_calls: list[dict[str, Any]]
-    ) -> None:
-        """
-        Accumulate streaming tool call deltas into complete tool call structures.
-
-        This is a critical method that handles the complex task of assembling
-        tool calls from streaming deltas. LLM APIs stream tool calls in fragments:
-        - Tool call IDs may arrive first
-        - Function names may arrive in multiple chunks
-        - Function arguments arrive as partial JSON strings
-        - Deltas may arrive out of order or with missing indices
-
-        The method uses a defensive accumulation strategy:
-        1. Ensures the current_tool_calls list has enough slots for all indices
-        2. Uses list-based accumulation for both names and arguments
-        3. Rebuilds complete strings from accumulated parts after each delta
-
-        This approach handles edge cases like:
-        - Out-of-order deltas (common with parallel processing)
-        - Missing or duplicate deltas
-        - Partial JSON in arguments that needs to be concatenated
-
-        Args:
-            current_tool_calls: The mutable list being built up (modified in-place)
-            tool_calls: List of delta fragments from the current streaming chunk
-
-        Side Effects:
-            - Modifies current_tool_calls in-place by extending or updating elements
-            - Creates intermediate "_parts" lists to handle out-of-order accumulation
-            - Rebuilds name and arguments strings from parts after each update
-        """
-        logger.debug("Accumulating tool call deltas: %d fragments", len(tool_calls))
-
-        for tool_call in tool_calls:
-            # Ensure we have enough space in the buffer for this tool call index
-            while len(current_tool_calls) <= tool_call.get("index", 0):
-                current_tool_calls.append(
-                    {
-                        "id": "",
-                        "type": "function",
-                        "function": {"name": "", "arguments": ""},
-                    }
-                )
-
-            idx = tool_call.get("index", 0)
-
-            # Accumulate tool call ID (usually arrives first and complete)
-            if "id" in tool_call:
-                current_tool_calls[idx]["id"] = tool_call["id"]
-                logger.debug("Tool call %d: accumulated ID", idx)
-
-            # Accumulate function details using part-based strategy
-            if "function" in tool_call:
-                func = tool_call["function"]
-
-                # Handle function name accumulation (may arrive in chunks)
-                if "name" in func:
-                    # Initialize parts list if not exists
-                    if "name_parts" not in current_tool_calls[idx]["function"]:
-                        current_tool_calls[idx]["function"]["name_parts"] = []
-                    # Accumulate this name fragment
-                    name_parts = cast(
-                        list[str], current_tool_calls[idx]["function"]["name_parts"]
-                    )
-                    name_parts.append(func["name"])
-                    # Rebuild complete name from all parts
-                    current_tool_calls[idx]["function"]["name"] = "".join(name_parts)
-                    logger.debug("Tool call %d: accumulated name fragment", idx)
-
-                # Handle function arguments accumulation (partial JSON strings)
-                if "arguments" in func:
-                    # Initialize parts list if not exists
-                    if "args_parts" not in current_tool_calls[idx]["function"]:
-                        current_tool_calls[idx]["function"]["args_parts"] = []
-                    # Accumulate this argument fragment
-                    args_parts = cast(
-                        list[str], current_tool_calls[idx]["function"]["args_parts"]
-                    )
-                    args_parts.append(func["arguments"])
-                    # Rebuild complete arguments JSON from all parts
-                    current_tool_calls[idx]["function"]["arguments"] = "".join(
-                        args_parts
-                    )
-                    logger.debug("Tool call %d: accumulated argument fragment", idx)
-
-        logger.debug(
-            "Completed tool call accumulation: %d total calls", len(current_tool_calls)
-        )
 
     async def execute_tool_calls(
         self, conv: list[dict[str, Any]], calls: list[dict[str, Any]]

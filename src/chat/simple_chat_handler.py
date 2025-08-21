@@ -1,14 +1,7 @@
 """
 Simple Chat Handler
 
-Hfrom .models import (
-    AssistantMessage,
-    ConversationHistory,
-    ToolDefinition,
-    ToolMessage,
-    SystemMessage,
-    UserMessage,
-) mundane/stable non-streaming chat operations:
+Mundane/stable non-streaming chat operations:
 - Basic request/response flow
 - No delta complexity
 - Simple tool call execution
