@@ -473,13 +473,20 @@ class SQLiteRepo(ChatRepository):
                 and event.extra
                 and "tool_call_id" in event.extra
             ):
-                conv.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": event.extra["tool_call_id"],
-                        "content": str(event.content or ""),
-                    }
-                )
+                # Only include tool results if the immediately preceding message
+                # is an assistant message with tool_calls (required by OpenAI API)
+                if (
+                    conv
+                    and conv[-1].get("role") == "assistant"
+                    and "tool_calls" in conv[-1]
+                ):
+                    conv.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": event.extra["tool_call_id"],
+                            "content": str(event.content or ""),
+                        }
+                    )
 
         # Add current user message
         conv.append({"role": "user", "content": user_msg})

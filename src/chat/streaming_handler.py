@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
@@ -188,11 +189,28 @@ class StreamingHandler:
             new_messages = conv_dict[current_msg_count:]
 
             # Add tool response messages to the conversation object
-            for msg_dict in new_messages:
+            # and persist them so they are available in future turns
+            for i, msg_dict in enumerate(new_messages):
                 tool_msg = ToolMessage(
                     content=msg_dict["content"], tool_call_id=msg_dict["tool_call_id"]
                 )
-                context.conv.add_message(tool_msg)  # Get follow-up response
+                context.conv.add_message(tool_msg)
+
+                # Persist tool result event into repository
+                unique_req_id = f"tool:{context.request_id}:{hops}:{i}"
+                await self.repo.add_event(
+                    ChatEvent(
+                        conversation_id=context.conversation_id,
+                        seq=0,
+                        type="tool_result",
+                        role="tool",
+                        content=msg_dict["content"],
+                        extra={
+                            "tool_call_id": msg_dict["tool_call_id"],
+                            "request_id": unique_req_id,
+                        },
+                    )
+                )
             logger.info("→ LLM: requesting follow-up response for hop %d", hops + 1)
             raw_assistant_msg = None
             had_text_deltas = False
@@ -270,6 +288,7 @@ class StreamingHandler:
                 )
             ):
                 # Persist aggregated delta as a single meta event
+                unique_delta_request_id = f"assistant_delta:{user_request_id}:{hop_number}:{int(time.time() * 1000)}:{uuid.uuid4().hex[:8]}"
                 delta_event = ChatEvent(
                     conversation_id=conversation_id,
                     seq=0,  # Repository will assign sequence number
@@ -279,7 +298,7 @@ class StreamingHandler:
                         "kind": "assistant_delta",
                         "user_request_id": user_request_id,
                         "hop_number": hop_number,
-                        "request_id": user_request_id,
+                        "request_id": unique_delta_request_id,
                         "batched": True,
                     },
                 )

@@ -118,7 +118,9 @@ class SimpleChatHandler:
         conv = self._convert_to_conversation_history(conv_dict)
 
         # Generate response
-        content, model = await self.generate_assistant_response(conv, tools_payload)
+        content, model = await self.generate_assistant_response(
+            conv, tools_payload, conversation_id=conversation_id, request_id=request_id
+        )
 
         # Persist assistant message
         return await self.repo.persist_assistant_message(
@@ -130,7 +132,11 @@ class SimpleChatHandler:
         )
 
     async def generate_assistant_response(
-        self, conv: ConversationHistory, tools_payload: list[ToolDefinition]
+        self,
+        conv: ConversationHistory,
+        tools_payload: list[ToolDefinition],
+        conversation_id: str | None = None,
+        request_id: str | None = None,
     ) -> tuple[str, str]:
         """Generate assistant response using tools if needed."""
         logger.info("→ LLM: requesting non-streaming response")
@@ -171,8 +177,8 @@ class SimpleChatHandler:
                 )
             )
 
-            # Execute tools sequentially
-            for call in calls:
+            # Execute tools sequentially and persist tool results
+            for i, call in enumerate(calls):
                 tool_name = call.function.name
                 try:
                     args: dict[str, Any] = json.loads(call.function.arguments or "{}")
@@ -194,6 +200,23 @@ class SimpleChatHandler:
                         content=content,
                     )
                 )
+
+                # Persist tool_result so it becomes part of future context
+                if conversation_id:
+                    req_id = f"tool:{request_id or call.id}:{hops}:{i}"
+                    await self.repo.add_event(
+                        ChatEvent(
+                            conversation_id=conversation_id,
+                            seq=0,
+                            type="tool_result",
+                            role="tool",
+                            content=content,
+                            extra={
+                                "tool_call_id": call.id,
+                                "request_id": req_id,
+                            },
+                        )
+                    )
 
             # Get follow-up response
             logger.info("→ LLM: requesting follow-up response (hop %d)", hops + 1)
