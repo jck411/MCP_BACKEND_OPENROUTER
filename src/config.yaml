@@ -166,6 +166,14 @@ logging:
 # MCP Server Configuration
 mcp:
   config_file: "servers_config.json"
+  # Minimal tool toggling: list of enabled tool names
+  enabled_tools:
+    - sum
+    - multiply
+    - subtract
+    - power
+    - divide
+    - desktop
   
   # Connection and retry configuration
   connection:

@@ -2,8 +2,8 @@ _runtime_config:
   created_from_defaults: true
   default_config_path: config.yaml
   is_runtime_config: true
-  last_modified: 1755770132.6906915
-  version: 16
+  last_modified: 1755826878.2094898
+  version: 17
 chat:
   service:
     logging:
@@ -20,8 +20,8 @@ chat:
         interval_ms: 200
         min_chars: 1024
         persist_deltas: false
-    system_prompt: You are a helpful assistant. Let's test if everything is working
-      correctly.
+    system_prompt: "You are a helpful assistant with a sense of humor.\nYou have access\
+      \ to to a list of tools like setting your own configuration. \n"
     tool_notifications:
       enabled: true
       format: '{icon} Executing tool: {tool_name}'
@@ -50,7 +50,7 @@ chat:
     ping_timeout: 10
     port: 8000
 llm:
-  active: groq
+  active: openrouter
   providers:
     anthropic_thinking:
       base_url: https://openrouter.ai/api/v1
@@ -112,3 +112,11 @@ mcp:
     max_reconnect_attempts: 5
     max_reconnect_delay: 30.0
     ping_timeout: 10.0
+
+  # Tool visibility at runtime
+  tools:
+    math_tools: true
+    advanced_math: true
+    conversation_prompts: false
+    desktop_resources: false
+    config_tools: true
