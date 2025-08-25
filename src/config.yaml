@@ -1,194 +1,220 @@
-# MCP Chatbot Configuration
+# ===========================================
+# MCP CHATBOT PLATFORM CONFIGURATION
+# ===========================================
+# Performance optimizations applied:
+# • Connection pooling: 10/5 (max/keepalive)
+# • Request timeout: 30s (reduced from 60s)
+# • MCP connection rate limiting: 5 concurrent
+# • Database: WAL mode + optimized indexing
+# • Configuration caching + event-driven updates
 
-# WebSocket Chat Configuration
+# 1. CHAT PLATFORM SETTINGS
+# ===========================================
 chat:
-  # WebSocket server configuration
+  # Real-time Communication
   websocket:
+    # Server endpoints
     host: "localhost"
     port: 8000
     endpoint: "/ws/chat"
 
-    # CORS settings
+    # Security & CORS
     allow_origins: ["*"]
     allow_credentials: true
 
-    # WebSocket settings
+    # Connection settings
     max_message_size: 16777216  # 16MB
     ping_interval: 20
     ping_timeout: 10
 
-  # Chat Storage Configuration
-  storage:
-    # Auto-persistence settings
-    persistence:
-      db_path: "chat_history.db"
-      retention:
-        max_age_hours: 24     # null for indefinite (messages older than X hours)
-        max_messages: 1000    # null for unlimited (total messages across all sessions)
-        max_sessions: 2      # null for unlimited (number of conversation sessions)
-        cleanup_interval_minutes: 2  # How often to run cleanup
-      
-    # Manual save feature (saves entire sessions)
-    saved_sessions:
-      enabled: false
-      retention_days: null    # null for indefinite
-      max_saved: 50          # Maximum number of saved sessions
-
-  # Chat Service Configuration
+  # Core Chat Behavior
   service:
-    # System prompt configuration
+    # AI Personality
     system_prompt: |
       You are a helpful assistant with a sense of humor.
-      You have access to to a list of tools like setting your own configuration. 
+      You have access to to a list of tools like setting your own configuration.
 
-    # Streaming configuration
+    # Response streaming
     streaming:
-      enabled: true  # Enable streaming by default (required setting)
-
-      # Streaming delta persistence (performance vs reliability)
-      #
-      # persist_deltas:
-      #   - false (recommended for dev/max speed): buffer deltas in memory; flush only on interval/size
-      #   - true  (recommended for prod/reliability): write deltas during streaming more frequently
-      # interval_ms:
-      #   - Time-based flush cadence (milliseconds). Increase for fewer DB writes, decrease for reliability
-      # min_chars:
-      #   - Size-based flush threshold (characters). Lower for lower memory usage/higher flush frequency
-      #
-      # Suggested presets:
-      #   - Dev/Max speed:    persist_deltas: false, interval_ms: 1000, min_chars: 2048
-      #   - Balanced Prod:    persist_deltas: true,  interval_ms: 200,  min_chars: 1024
-      #   - Max reliability:  persist_deltas: true,  interval_ms: 100,  min_chars: 512
+      enabled: true
       persistence:
-        persist_deltas: false      # Performance mode: buffer deltas, tolerate potential loss on crash
+        persist_deltas: false      # Performance mode
         interval_ms: 200           # Flush every 200ms
         min_chars: 1024            # Or when buffer reaches 1024 chars
 
-    # Tool execution configuration
-    max_tool_hops: 8  # Maximum number of recursive tool calls to prevent infinite loops
+    # Tool execution limits
+    max_tool_hops: 8
 
-    # Tool execution notifications
+    # User experience
     tool_notifications:
       enabled: true
       show_args: true
       icon: "🔧"
       format: "{icon} Executing tool: {tool_name}"
-      # Available placeholders: {icon}, {tool_name}, {tool_args}
 
-    # Logging configuration for chat service
+    # Service logging
     logging:
       tool_execution: true
       tool_results: true
       result_truncate_length: 200
-      # Reduce logging overhead in production (can be set to true while debugging)
-      system_prompt: false  # Avoid logging large system prompts in prod
-      llm_replies: false    # Avoid logging every token/reply in prod
-      llm_reply_truncate_length: 500  # Truncate length for LLM reply logs
+      system_prompt: false
+      llm_replies: false
+      llm_reply_truncate_length: 500
 
-# LLM Configuration - Ready for ANY parameters and reasoning models!
+# 2. DATA STORAGE & PERSISTENCE
+# ===========================================
+chat:
+  storage:
+    # Database configuration
+    persistence:
+      db_path: "chat_history.db"
+
+      # Data retention policies
+      retention:
+        max_age_hours: 24        # Messages older than 24h
+        max_messages: 1000       # Total messages across all sessions
+        max_sessions: 2          # Active conversation sessions
+        cleanup_interval_minutes: 2
+
+        # Clear triggers and history management
+        clear_triggers_before_full_wipe: 2  # Clear history after N clear triggers
+        auto_cleanup_on_restart: true        # Clear history when app restarts
+
+      # Session management
+      saved_sessions:
+        enabled: false
+        retention_days: null     # Indefinite
+        max_saved: 50
+
+# 3. AI/LLM PROVIDER CONFIGURATION
+# ===========================================
 llm:
-  active: "openrouter"  # Change this to: openai, groq, openrouter
+  # Active provider selection
+  active: "openrouter"
 
-  # Provider presets - Add ANY parameter and it will be passed through
+  # Provider configurations
   providers:
+    # OpenAI models
     openai:
       base_url: "https://api.openai.com/v1"
-      model: "gpt-4o-mini"  # or gpt-4, gpt-4-turbo, etc.
+      model: "gpt-4o-mini"
       temperature: 0.7
       max_tokens: 4096
       top_p: 1.0
-      # Any future OpenAI parameter can be added here
 
-    # Example: OpenAI o1 reasoning model configuration
     openai_reasoning:
       base_url: "https://api.openai.com/v1"
-      model: "o1-preview"  # Reasoning model
-      # o1 models use different parameters
-      max_completion_tokens: 8192  # o1 uses this instead of max_tokens
-      # temperature is fixed at 1 for o1 models (don't include it)
-      
+      model: "o1-preview"
+      max_completion_tokens: 8192
+
+    # Groq models
     groq:
       base_url: "https://api.groq.com/openai/v1"
-      model: "llama-3.3-70b-versatile"  # or llama-3.1-8b-instant, etc.
+      model: "llama-3.3-70b-versatile"
       temperature: 0.7
       max_tokens: 4096
       top_p: 1.0
-      # Groq-specific parameters
-      response_format: {"type": "text"}  # Could be "json_object" for JSON responses
+      response_format: {"type": "text"}
 
-    # Example: OpenRouter with various models and parameters
+    # OpenRouter models (active)
     openrouter:
       base_url: "https://openrouter.ai/api/v1"
-      model: "openai/gpt-4o-mini"  # Standard model
+      model: "openai/gpt-4o-mini"
       temperature: 0.7
       max_tokens: 4096
       top_p: 1.0
-      # OpenRouter-specific parameters
-      transforms: ["middle-out"]  # OpenRouter transform options
+      transforms: ["middle-out"]
 
-    # Example: OpenRouter with o3 reasoning model
     openrouter_reasoning:
       base_url: "https://openrouter.ai/api/v1"
-      model: "openai/o3-mini"  # Latest reasoning model
+      model: "openai/o3-mini"
       temperature: 0.7
       max_tokens: 8192
-      # Reasoning-specific parameters (these are examples)
-      reasoning_effort: "high"  # low, medium, high
-      include_thinking: true    # Whether to include thinking in response
-      
-    # Example: Anthropic Claude with thinking mode (if available via OpenRouter)
+      reasoning_effort: "high"
+      include_thinking: true
+
+    # Anthropic models (via OpenRouter)
     anthropic_thinking:
       base_url: "https://openrouter.ai/api/v1"
       model: "anthropic/claude-3-opus"
       temperature: 0.7
       max_tokens: 4096
-      # Potential thinking mode parameters (examples)
       show_reasoning: true
       thinking_mode: "step_by_step"
-      
-    # Example: Custom provider configuration
+
+    # Template for custom providers
     custom_provider:
       base_url: "https://api.example.com/v1"
       model: "custom-model-v2"
       temperature: 0.8
       max_tokens: 2048
-      # Any custom parameters the provider supports
+
+      # Custom parameters (add any provider-specific params)
       custom_param1: "value1"
       custom_param2: 42
       nested_config:
         sub_param: "nested_value"
 
-# Logging Configuration
+# 4. NETWORK & CONNECTION SETTINGS
+# ===========================================
+connection_pool:
+  # HTTP client connection management
+  max_connections: 10           # Max concurrent connections
+  max_keepalive_connections: 5  # Persistent connections
+  keepalive_expiry_seconds: 30  # Connection expiry
+
+  # Timeouts & reliability
+  request_timeout_seconds: 30   # Initial response timeout
+  total_timeout_seconds: 120    # Total request timeout
+
+  # Connection monitoring
+  logging:
+    enabled: true
+    connection_events: true
+    pool_stats: true
+    pool_stats_interval_seconds: 60
+    http_requests: false
+    connection_reuse: false
+    max_log_entries: 1000
+
+# 5. MONITORING & LOGGING
+# ===========================================
 logging:
+  # Global logging settings
   level: "INFO"
   format: "%(asctime)s - %(levelname)s - %(message)s"
 
-# MCP Server Configuration
+  # Connection-specific logging (can be filtered)
+  # filters:
+  #   connection_logs:
+  #     (): src.clients.llm_client
+  #     (): src.clients.mcp_client
+  #     connection_events: true
+
+# 6. EXTERNAL INTEGRATIONS
+# ===========================================
 mcp:
+  # Server configuration file
   config_file: "servers_config.json"
-  # Minimal tool toggling: list of enabled tool names
-  enabled_tools:
-    - sum
-    - multiply
-    - subtract
-    - power
-    - divide
-    - desktop
-  
-  # Connection and retry configuration
+
+  # Connection management
   connection:
-    # Maximum number of reconnection attempts per server
+    # Retry behavior
     max_reconnect_attempts: 5
-    
-    # Initial delay between reconnection attempts (seconds)
-    # Uses exponential backoff up to max_reconnect_delay
     initial_reconnect_delay: 1.0
-    
-    # Maximum delay between reconnection attempts (seconds)
     max_reconnect_delay: 30.0
-    
-    # Connection timeout for initial server connection (seconds)
+
+    # Timeouts
     connection_timeout: 30.0
-    
-    # Ping timeout for connection health checks (seconds)
     ping_timeout: 10.0
+
+    # MCP-specific logging
+    logging:
+      enabled: true
+      connection_attempts: true
+      health_checks: false
+      tool_calls: false
+
+# ===========================================
+# CONFIGURATION END
+# ===========================================

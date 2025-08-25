@@ -48,6 +48,14 @@ class AutoPersistRepo(SQLiteRepo):
             "cleanup_interval_minutes", 5
         )
 
+        # Clear trigger settings
+        self.clear_triggers_before_full_wipe = self.retention_config.get(
+            "clear_triggers_before_full_wipe", self.max_sessions
+        )
+        self.auto_cleanup_on_restart = self.retention_config.get(
+            "auto_cleanup_on_restart", False
+        )
+
         # Manual save settings
         self.saved_sessions_enabled = self.saved_sessions_config.get("enabled", True)
         self.saved_retention_days = self.saved_sessions_config.get("retention_days")
@@ -89,9 +97,72 @@ class AutoPersistRepo(SQLiteRepo):
 
             await db.commit()
 
+        # Auto cleanup on restart if enabled
+        if self.auto_cleanup_on_restart:
+            await self._auto_cleanup_on_restart()
+
         # Start cleanup task if not already running
         if not self._cleanup_running:
             await self._start_cleanup_task()
+
+    async def _auto_cleanup_on_restart(self):
+        """Perform automatic cleanup when the application restarts."""
+        try:
+            # Count messages before cleanup
+            async with aiosqlite.connect(self.db_path) as db:
+                async with db.execute("SELECT COUNT(*) FROM chat_events") as cursor:
+                    row = await cursor.fetchone()
+                    total_messages = row[0] if row else 0
+
+                if total_messages > 0:
+                    # Get list of saved conversation IDs to preserve
+                    saved_conversation_ids = []
+                    if self.saved_sessions_enabled:
+                        async with db.execute(
+                            "SELECT DISTINCT conversation_id FROM saved_sessions"
+                        ) as cursor:
+                            rows = await cursor.fetchall()
+                            saved_conversation_ids = [row[0] for row in rows]
+
+                    if saved_conversation_ids:
+                        # Delete all messages except those in saved conversations
+                        placeholders = ", ".join("?" * len(saved_conversation_ids))
+                        await db.execute(
+                            (
+                                f"DELETE FROM chat_events WHERE conversation_id NOT IN ("
+                                f"{placeholders})"
+                            ),
+                            saved_conversation_ids,
+                        )
+                        logger.info(
+                            f"Auto cleanup on restart: cleared all history except "
+                            f"{len(saved_conversation_ids)} saved conversations"
+                        )
+                    else:
+                        # Delete all messages
+                        await db.execute("DELETE FROM chat_events")
+                        logger.info(
+                            "Auto cleanup on restart: cleared all conversation history "
+                            "(no saved sessions to preserve)"
+                        )
+
+                    # Count messages after cleanup
+                    async with db.execute("SELECT COUNT(*) FROM chat_events") as cursor:
+                        row = await cursor.fetchone()
+                        remaining_messages = row[0] if row else 0
+
+                    await db.commit()
+
+                    deleted_count = total_messages - remaining_messages
+                    logger.info(
+                        f"Auto cleanup on restart completed: deleted {deleted_count} messages, "
+                        f"{remaining_messages} preserved"
+                    )
+                else:
+                    logger.info("Auto cleanup on restart: no messages to clean up")
+
+        except Exception as e:
+            logger.error(f"Error during auto cleanup on restart: {e}")
 
     async def _start_cleanup_task(self):
         """Start the background cleanup task."""
@@ -353,11 +424,9 @@ class AutoPersistRepo(SQLiteRepo):
         self._clear_session_counter += 1
         logger.info(f"Clear session count: {self._clear_session_counter}")
 
-        # Check if we should do a full wipe (every max_sessions clears)
-        if (
-            self.max_sessions is not None
-            and self._clear_session_counter >= self.max_sessions
-        ):
+        # Check if we should do a full wipe based on clear trigger count
+        trigger_threshold = self.clear_triggers_before_full_wipe
+        if trigger_threshold is not None and self._clear_session_counter >= trigger_threshold:
             await self._wipe_all_history_except_saved()
             self._clear_session_counter = 0  # Reset counter after wipe
             return True

@@ -479,6 +479,103 @@ class Configuration:
             "ping_timeout": ping_timeout,
         }
 
+    def get_mcp_logging_config(self) -> dict[str, Any]:
+        """Get MCP connection logging configuration from YAML.
+
+        Returns:
+            MCP logging configuration dictionary with validated defaults.
+        """
+        config = self._get_current_config()
+        mcp_config = config.get("mcp", {})
+        connection_config = mcp_config.get("connection", {})
+        logging_config = connection_config.get("logging", {})
+
+        # Get values with defaults
+        enabled = logging_config.get("enabled", True)
+        connection_attempts = logging_config.get("connection_attempts", True)
+        health_checks = logging_config.get("health_checks", False)
+        tool_calls = logging_config.get("tool_calls", False)
+
+        return {
+            "enabled": enabled,
+            "connection_attempts": connection_attempts,
+            "health_checks": health_checks,
+            "tool_calls": tool_calls,
+        }
+
+    def get_connection_pool_config(self) -> dict[str, Any]:
+        """Get HTTP connection pool configuration from YAML.
+
+        Returns:
+            Connection pool configuration dictionary with validated defaults.
+        """
+        config = self._get_current_config()
+        pool_config = config.get("connection_pool", {})
+
+        # Get values with defaults (optimized for performance)
+        max_connections = pool_config.get("max_connections", 50)
+        max_keepalive_connections = pool_config.get("max_keepalive_connections", 10)
+        keepalive_expiry_seconds = pool_config.get("keepalive_expiry_seconds", 30.0)
+        request_timeout_seconds = pool_config.get("request_timeout_seconds", 30.0)
+        total_timeout_seconds = pool_config.get("total_timeout_seconds", 120.0)
+
+        # Validate configuration values
+        if max_connections < 1:
+            raise ValueError("max_connections must be at least 1")
+        if max_keepalive_connections < 1:
+            raise ValueError("max_keepalive_connections must be at least 1")
+        if keepalive_expiry_seconds <= 0:
+            raise ValueError("keepalive_expiry_seconds must be positive")
+        if request_timeout_seconds <= 0:
+            raise ValueError("request_timeout_seconds must be positive")
+        if total_timeout_seconds <= 0:
+            raise ValueError("total_timeout_seconds must be positive")
+        if total_timeout_seconds < request_timeout_seconds:
+            raise ValueError("total_timeout_seconds must be >= request_timeout_seconds")
+
+        return {
+            "max_connections": max_connections,
+            "max_keepalive_connections": max_keepalive_connections,
+            "keepalive_expiry_seconds": keepalive_expiry_seconds,
+            "request_timeout_seconds": request_timeout_seconds,
+            "total_timeout_seconds": total_timeout_seconds,
+        }
+
+    def get_connection_logging_config(self) -> dict[str, Any]:
+        """Get HTTP connection logging configuration from YAML.
+
+        Returns:
+            Connection logging configuration dictionary with validated defaults.
+        """
+        config = self._get_current_config()
+        pool_config = config.get("connection_pool", {})
+        logging_config = pool_config.get("logging", {})
+
+        # Get values with defaults (optimized for performance)
+        enabled = logging_config.get("enabled", False)
+        connection_events = logging_config.get("connection_events", True)
+        pool_stats = logging_config.get("pool_stats", False)
+        pool_stats_interval_seconds = logging_config.get("pool_stats_interval_seconds", 60.0)
+        http_requests = logging_config.get("http_requests", False)
+        connection_reuse = logging_config.get("connection_reuse", False)
+        max_log_entries = logging_config.get("max_log_entries", 1000)
+
+        # Validate configuration values
+        if pool_stats_interval_seconds <= 0:
+            raise ValueError("pool_stats_interval_seconds must be positive")
+        if max_log_entries < 0:
+            raise ValueError("max_log_entries must be non-negative")
+
+        return {
+            "enabled": enabled,
+            "connection_events": connection_events,
+            "pool_stats": pool_stats,
+            "pool_stats_interval_seconds": pool_stats_interval_seconds,
+            "http_requests": http_requests,
+            "connection_reuse": connection_reuse,
+            "max_log_entries": max_log_entries,
+        }
+
     def reset_to_defaults(self) -> None:
         """Reset runtime_config.yaml to the defaults from config.yaml."""
         # Save a copy of the default config as the new runtime config.

@@ -93,8 +93,15 @@ class ChatOrchestrator:
 
             # Connect to all clients and collect results
             logger.info("→ Orchestrator: connecting to MCP clients")
+            # Use semaphore to limit concurrent connection attempts and avoid overwhelming system
+            connection_semaphore = asyncio.Semaphore(5)  # Max 5 concurrent connections
+
+            async def connect_with_semaphore(client):
+                async with connection_semaphore:
+                    return await client.connect()
+
             connection_results = await asyncio.gather(
-                *(c.connect() for c in self.clients), return_exceptions=True
+                *(connect_with_semaphore(c) for c in self.clients), return_exceptions=True
             )
 
             # Filter out only successfully connected clients

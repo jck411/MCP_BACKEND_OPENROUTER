@@ -7,6 +7,8 @@ Shared logging functionality for chat operations to eliminate code duplication.
 from __future__ import annotations
 
 import logging
+import time
+from contextlib import asynccontextmanager
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -145,3 +147,33 @@ def log_error_with_context(context: str, error: Exception) -> None:
         error: The exception that was raised
     """
     logger.error(f"Error {context}: {error}")
+
+
+@asynccontextmanager
+async def log_performance(operation_name: str):
+    """Context manager to log performance metrics for operations."""
+    start_time = time.monotonic()
+    try:
+        yield
+    finally:
+        elapsed_ms = (time.monotonic() - start_time) * 1000
+        logger.info(f"⏱️ {operation_name} completed in {elapsed_ms:.2f}ms")
+
+
+def log_llm_request_start(request_id: str, provider: str, model: str) -> float:
+    """Log the start of an LLM request and return start time."""
+    start_time = time.monotonic()
+    logger.info(f"🚀 LLM request started: request_id={request_id}, provider={provider}, model={model}")
+    return start_time
+
+
+def log_llm_request_complete(request_id: str, start_time: float, success: bool = True):
+    """Log the completion of an LLM request with timing."""
+    elapsed_ms = (time.monotonic() - start_time) * 1000
+    status = "✅" if success else "❌"
+    logger.info(f"{status} LLM request completed: request_id={request_id}, elapsed={elapsed_ms:.2f}ms")
+
+
+def log_connection_pool_stats(active_connections: int, available_connections: int):
+    """Log connection pool statistics."""
+    logger.debug(f"🔌 Connection pool: active={active_connections}, available={available_connections}")

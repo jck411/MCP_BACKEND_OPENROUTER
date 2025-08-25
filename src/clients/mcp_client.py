@@ -83,6 +83,9 @@ class MCPClient:
             f"ping_timeout={self._ping_timeout}s"
         )
 
+        # Log MCP client initialization
+        logging.info(f"🔌 MCP client '{name}' initialized with connection settings")
+
     def _resolve_command(self) -> str | None:
         """
         Resolve command configuration to absolute executable path with validation.
@@ -148,11 +151,13 @@ class MCPClient:
         """
         while self._reconnect_attempts < self._max_reconnect_attempts:
             try:
+                logging.info(f"🔌 Attempting to connect to MCP server '{self.name}' (attempt {self._reconnect_attempts + 1}/{self._max_reconnect_attempts})")
                 await self._attempt_connection()
                 self._is_connected = True
                 self._reconnect_attempts = 0
                 # Reset delay for future reconnection attempts
                 self._reconnect_delay = self._initial_reconnect_delay
+                logging.info(f"🔌 Successfully connected to MCP server '{self.name}'")
                 return
             except Exception as e:
                 self._reconnect_attempts += 1
@@ -162,13 +167,13 @@ class MCPClient:
                     # Reset delay for future connection attempts
                     self._reconnect_delay = self._initial_reconnect_delay
                     logging.error(
-                        f"Failed to connect to {self.name} after "
+                        f"🔌 Failed to connect to {self.name} after "
                         f"{self._max_reconnect_attempts} attempts: {e}"
                     )
                     raise
 
                 logging.warning(
-                    f"Connection attempt {self._reconnect_attempts} failed for "
+                    f"🔌 Connection attempt {self._reconnect_attempts} failed for "
                     f"{self.name}: {e}. Retrying in {self._reconnect_delay}s..."
                 )
                 await asyncio.sleep(self._reconnect_delay)

@@ -288,12 +288,12 @@ class WebSocketServer:
                     .get("persistence", {})
                     .get("retention", {})
                 )
-                max_sessions = retention_conf.get("max_sessions")
+                clear_triggers = retention_conf.get("clear_triggers_before_full_wipe")
                 logger.info(
                     "Full history wipe occurred%s",
                     (
-                        f" on {max_sessions}th clear session"
-                        if isinstance(max_sessions, int)
+                        f" on {clear_triggers}th clear session"
+                        if isinstance(clear_triggers, int)
                         else ""
                     ),
                 )
@@ -311,10 +311,10 @@ class WebSocketServer:
             else:
                 new_conversation_id = old_conversation_id  # Keep same conversation
                 counter = getattr(self.repo, "_clear_session_counter", "?")
-                max_sessions = getattr(self.repo, "max_sessions", "N/A")
+                clear_triggers = getattr(self.repo, "clear_triggers_before_full_wipe", "N/A")
                 logger.info(
                     f"UI clear only: Session {old_conversation_id} "
-                    f"(counter: {counter}/{max_sessions})"
+                    f"(counter: {counter}/{clear_triggers})"
                 )
 
             # Send success response
