@@ -76,10 +76,10 @@ run_format() {
     uv run ruff check --fix .
 }
 
-run_demo_server() {
-    echo -e "${BLUE}🚀 Starting demo FastMCP server...${NC}"
+run_config_server() {
+    echo -e "${BLUE}🚀 Starting config FastMCP server...${NC}"
     echo "Press Ctrl+C to stop"
-    uv run python Servers/demo_server.py
+    uv run python Servers/config_server.py
 }
 
 run_shell() {
@@ -138,7 +138,7 @@ case "${1:-help}" in
         run_format
         ;;
     server)
-        run_demo_server
+        run_config_server
         ;;
     test)
         echo -e "${YELLOW}⚠️  No tests configured yet${NC}"

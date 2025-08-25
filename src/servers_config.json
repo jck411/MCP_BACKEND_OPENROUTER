@@ -2,10 +2,10 @@
   "_comment": "MCP Platform Server Configuration - Primary configuration location",
   "_usage": "Add or remove MCP servers here. Tool configuration is handled by each server",
   "mcpServers": {
-    "demo": {
+    "config": {
       "enabled": true,
       "command": "uv",
-      "args": ["run", "python", "Servers/demo_server.py"],
+      "args": ["run", "python", "Servers/config_server.py"],
       "cwd": "/home/jack/MCP_PLATFORM_FastMCP"
     },
     "template": {

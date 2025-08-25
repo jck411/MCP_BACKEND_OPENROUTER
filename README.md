@@ -87,7 +87,7 @@ llm:
     "demo": {
       "enabled": true,
       "command": "uv",
-      "args": ["run", "python", "Servers/demo_server.py"],
+      "args": ["run", "python", "Servers/config_server.py"],
       "cwd": "/path/to/your/project"
     }
   }

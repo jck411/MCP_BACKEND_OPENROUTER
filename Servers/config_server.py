@@ -10,18 +10,62 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 import yaml
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
+# Per-tool toggles (default True). Disable any individual tool by name.
+TOOL_TOGGLES = {
+    # Configuration tools
+    "get_system_prompt": True,
+    "get_sampling_parameters": True,
+    "get_length_parameters": True,
+    "get_penalty_parameters": True,
+    "get_stopping_criteria": True,
+    "set_system_prompt": True,
+    "set_temperature": True,
+    "set_max_tokens": True,
+    "set_top_p": True,
+    "switch_llm_provider": True,
+    "set_presence_penalty": True,
+    "set_frequency_penalty": True,
+    "set_repetition_penalty": True,
+    "set_top_k": True,
+    "set_seed": True,
+    "set_min_p": True,
+    "set_top_a": True,
+    "set_stop_sequences": True,
+    "set_response_format": True,
+    "set_structured_outputs": True,
+    "set_include_reasoning": True,
+    "set_reasoning": True,
+    "reset_runtime_config_to_defaults": True,
+}
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+def _identity_decorator(func: F) -> F:
+    """Identity decorator that does nothing - used when tools are disabled."""
+    return func
+
+
+# Conditional decorators that become no-ops when a tool is disabled.
+def tool_if(toggle_key: str) -> Callable[[F], F]:
+    """Conditional tool decorator - only registers if toggle is True."""
+    if TOOL_TOGGLES.get(toggle_key, True):
+        return cast(Callable[[F], F], mcp.tool())
+    return _identity_decorator
+
 # Configuration tools - all tools are enabled by default
 
 
-class DemoServerConfig(BaseModel):
-    """Configuration for the demo server with caching and validation."""
+class ConfigServerConfig(BaseModel):
+    """Configuration for the config server with caching and validation."""
 
     # Server paths
     project_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parent.parent)
@@ -70,10 +114,10 @@ class DemoServerConfig(BaseModel):
 
 
 # Create single instance for the entire server
-config_manager = DemoServerConfig()
+config_manager = ConfigServerConfig()
 
-
-
+# Create server
+mcp = FastMCP("Config")
 
 # Configuration validation constants
 MIN_TEMPERATURE = 0.0
@@ -81,10 +125,6 @@ MAX_TEMPERATURE = 2.0
 MAX_TOKENS_LIMIT = 50000
 MIN_PENALTY = -2.0
 MAX_PENALTY = 2.0
-
-# Create server
-mcp = FastMCP("Demo")
-
 
 # Path helpers
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -95,10 +135,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 
-
 # Configuration tools - now using cached config manager
 
-@mcp.tool()
+@tool_if("get_system_prompt")
 def get_system_prompt() -> str:
     """Get the current system prompt configuration"""
     config = config_manager.get_config()
@@ -107,7 +146,7 @@ def get_system_prompt() -> str:
     system_prompt = service.get("system_prompt", "No system prompt configured")
     return f"System prompt: {system_prompt}"
 
-@mcp.tool()
+@tool_if("get_sampling_parameters")
 def get_sampling_parameters() -> str:
     """Get sampling parameters (temperature, top_p, top_k) for active provider"""
     active_provider, provider_config = config_manager.get_active_provider_config()
@@ -123,7 +162,7 @@ def get_sampling_parameters() -> str:
         f"- Top-k: {top_k}"
     )
 
-@mcp.tool()
+@tool_if("get_length_parameters")
 def get_length_parameters() -> str:
     """Get length parameters (max_tokens, min_length) for active provider"""
     active_provider, provider_config = config_manager.get_active_provider_config()
@@ -139,7 +178,7 @@ def get_length_parameters() -> str:
         f"- Max completion tokens: {max_completion_tokens}"
     )
 
-@mcp.tool()
+@tool_if("get_penalty_parameters")
 def get_penalty_parameters() -> str:
     """Get penalty parameters for active provider"""
     active_provider, provider_config = config_manager.get_active_provider_config()
@@ -155,7 +194,7 @@ def get_penalty_parameters() -> str:
         f"- Repetition penalty: {repetition_penalty}"
     )
 
-@mcp.tool()
+@tool_if("get_stopping_criteria")
 def get_stopping_criteria() -> str:
     """Get stopping criteria (stop sequences, max tokens) for active provider"""
     active_provider, provider_config = config_manager.get_active_provider_config()
@@ -173,7 +212,7 @@ def get_stopping_criteria() -> str:
 
 # Configuration editing tools
 
-@mcp.tool()
+@tool_if("set_system_prompt")
 def set_system_prompt(prompt: str) -> str:
     """
     Set the system prompt configuration but ensure it always begins with
@@ -201,7 +240,7 @@ def set_system_prompt(prompt: str) -> str:
     config_manager.save_config(config)
     return "System prompt updated successfully"
 
-@mcp.tool()
+@tool_if("set_temperature")
 def set_temperature(temperature: float) -> str:
     """Set the temperature for the active LLM provider (0.0-2.0)"""
     if not MIN_TEMPERATURE <= temperature <= MAX_TEMPERATURE:
@@ -218,7 +257,7 @@ def set_temperature(temperature: float) -> str:
     config_manager.save_config(config)
     return f"Temperature set to {temperature} for {active_provider}"
 
-@mcp.tool()
+@tool_if("set_max_tokens")
 def set_max_tokens(max_tokens: int) -> str:
     """Set the max_tokens for the active LLM provider"""
     if max_tokens <= 0:
@@ -233,7 +272,7 @@ def set_max_tokens(max_tokens: int) -> str:
     config_manager.save_config(config)
     return f"Max tokens set to {max_tokens} for {active_provider}"
 
-@mcp.tool()
+@tool_if("set_top_p")
 def set_top_p(top_p: float) -> str:
     """Set the top_p sampling parameter for the active LLM provider (0.0-1.0)"""
     if not 0.0 <= top_p <= 1.0:
@@ -246,7 +285,7 @@ def set_top_p(top_p: float) -> str:
     config_manager.save_config(config)
     return f"Top-p set to {top_p} for {active_provider}"
 
-@mcp.tool()
+@tool_if("switch_llm_provider")
 def switch_llm_provider(provider: str) -> str:
     """Switch to a different LLM provider (groq, openai, openrouter, etc.)"""
     config = config_manager.get_config()
@@ -264,7 +303,7 @@ def switch_llm_provider(provider: str) -> str:
     config_manager.save_config(config)
     return f"Switched to LLM provider: {provider}"
 
-@mcp.tool()
+@tool_if("set_presence_penalty")
 def set_presence_penalty(penalty: float) -> str:
     """Set the presence_penalty for the active LLM provider (-2.0 to 2.0)"""
     if not MIN_PENALTY <= penalty <= MAX_PENALTY:
@@ -280,7 +319,7 @@ def set_presence_penalty(penalty: float) -> str:
     config_manager.save_config(config)
     return f"Presence penalty set to {penalty} for {active_provider}"
 
-@mcp.tool()
+@tool_if("set_frequency_penalty")
 def set_frequency_penalty(penalty: float) -> str:
     """Set the frequency_penalty for the active LLM provider (-2.0 to 2.0)"""
     if not MIN_PENALTY <= penalty <= MAX_PENALTY:
@@ -296,7 +335,7 @@ def set_frequency_penalty(penalty: float) -> str:
     config_manager.save_config(config)
     return f"Frequency penalty set to {penalty} for {active_provider}"
 
-@mcp.tool()
+@tool_if("set_repetition_penalty")
 def set_repetition_penalty(penalty: float) -> str:
     """Set repetition_penalty for the active provider (> 0.0 recommended)"""
     if penalty <= 0:
@@ -309,7 +348,7 @@ def set_repetition_penalty(penalty: float) -> str:
     config_manager.save_config(config)
     return f"Repetition penalty set to {penalty} for {active_provider}"
 
-@mcp.tool()
+@tool_if("set_top_k")
 def set_top_k(top_k: int) -> str:
     """Set top_k sampling parameter for the active provider (>= 0)"""
     if top_k < 0:
@@ -322,7 +361,7 @@ def set_top_k(top_k: int) -> str:
     config_manager.save_config(config)
     return f"Top-k set to {top_k} for {active_provider}"
 
-@mcp.tool()
+@tool_if("set_seed")
 def set_seed(seed: int) -> str:
     """Set sampling seed for the active provider (>= 0)"""
     if seed < 0:
@@ -335,7 +374,7 @@ def set_seed(seed: int) -> str:
     config_manager.save_config(config)
     return f"Seed set to {seed} for {active_provider}"
 
-@mcp.tool()
+@tool_if("set_min_p")
 def set_min_p(min_p: float) -> str:
     """Set min_p sampling parameter for the active provider (0.0-1.0)"""
     if not 0.0 <= min_p <= 1.0:
@@ -348,7 +387,7 @@ def set_min_p(min_p: float) -> str:
     config_manager.save_config(config)
     return f"min_p set to {min_p} for {active_provider}"
 
-@mcp.tool()
+@tool_if("set_top_a")
 def set_top_a(top_a: float) -> str:
     """Set top_a sampling parameter for the active provider (0.0-1.0)"""
     if not 0.0 <= top_a <= 1.0:
@@ -361,7 +400,7 @@ def set_top_a(top_a: float) -> str:
     config_manager.save_config(config)
     return f"top_a set to {top_a} for {active_provider}"
 
-@mcp.tool()
+@tool_if("set_stop_sequences")
 def set_stop_sequences(sequences: str) -> str:
     """
     Set stop sequences for the active provider.
@@ -390,7 +429,7 @@ def set_stop_sequences(sequences: str) -> str:
     config_manager.save_config(config)
     return f"Stop sequences updated for {active_provider}: {parsed}"
 
-@mcp.tool()
+@tool_if("set_response_format")
 def set_response_format(format_type: str) -> str:
     """
     Set response_format for the active provider. Common values:
@@ -409,7 +448,7 @@ def set_response_format(format_type: str) -> str:
     config_manager.save_config(config)
     return f"response_format set to {format_type} for {active_provider}"
 
-@mcp.tool()
+@tool_if("set_structured_outputs")
 def set_structured_outputs(enabled: bool) -> str:
     """Enable/disable structured_outputs for the active provider"""
     config = config_manager.get_config()
@@ -418,7 +457,7 @@ def set_structured_outputs(enabled: bool) -> str:
     config_manager.save_config(config)
     return f"structured_outputs set to {enabled} for {active_provider}"
 
-@mcp.tool()
+@tool_if("set_include_reasoning")
 def set_include_reasoning(include: bool) -> str:
     """Enable/disable include_reasoning for the active provider"""
     config = config_manager.get_config()
@@ -427,7 +466,7 @@ def set_include_reasoning(include: bool) -> str:
     config_manager.save_config(config)
     return f"include_reasoning set to {include} for {active_provider}"
 
-@mcp.tool()
+@tool_if("set_reasoning")
 def set_reasoning(level: str) -> str:
     """
     Set reasoning option for the active provider (provider-specific).
@@ -443,7 +482,7 @@ def set_reasoning(level: str) -> str:
     config_manager.save_config(config)
     return f"reasoning set to {normalized} for {active_provider}"
 
-@mcp.tool()
+@tool_if("reset_runtime_config_to_defaults")
 def reset_runtime_config_to_defaults() -> str:
     """
     Reset runtime_config.yaml to defaults from config.yaml.
@@ -494,9 +533,11 @@ def reset_runtime_config_to_defaults() -> str:
 
 
 
-
 if __name__ == "__main__":
     # Configure logging
     logging.basicConfig(level=logging.INFO)
-    logging.info("Demo Server starting with configuration management tools")
+
+    # Log which tools are enabled
+    enabled_tools = [k for k, v in TOOL_TOGGLES.items() if v]
+    logging.info(f"Config Server starting with {len(enabled_tools)} enabled tools: {', '.join(enabled_tools)}")
     mcp.run()
