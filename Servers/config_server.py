@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 # Per-tool toggles (default True). Disable any individual tool by name.
 TOOL_TOGGLES = {
     # Configuration tools
+    "get_current_llm_provider": True,
     "get_system_prompt": True,
     "get_sampling_parameters": True,
     "get_length_parameters": True,
@@ -136,6 +137,39 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 # Configuration tools - now using cached config manager
+
+@tool_if("get_current_llm_provider")
+def get_current_llm_provider() -> str:
+    """Get the currently active LLM provider and its details"""
+    active_provider, provider_config = config_manager.get_active_provider_config()
+
+    # Get available providers for context
+    config = config_manager.get_config()
+    providers = list(config.get("llm", {}).get("providers", {}).keys())
+
+    # Format provider details
+    details = []
+    if "model" in provider_config:
+        details.append(f"Model: {provider_config['model']}")
+    if "base_url" in provider_config:
+        # Mask API keys in URLs if present
+        url = provider_config["base_url"]
+        if "api.openai.com" in url:
+            details.append("Provider: OpenAI")
+        elif "api.groq.com" in url:
+            details.append("Provider: Groq")
+        elif "openrouter.ai" in url:
+            details.append("Provider: OpenRouter")
+        else:
+            details.append(f"Base URL: {url}")
+
+    details_str = " | ".join(details) if details else "No additional details"
+
+    return (
+        f"Current LLM Provider: {active_provider}\n"
+        f"Details: {details_str}\n"
+        f"Available providers: {', '.join(providers)}"
+    )
 
 @tool_if("get_system_prompt")
 def get_system_prompt() -> str:

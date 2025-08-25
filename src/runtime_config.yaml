@@ -157,7 +157,7 @@ chat:
         max_messages: 1000
         max_sessions: 2
         clear_triggers_before_full_wipe: 2
-        auto_cleanup_on_restart: true
+        # auto_cleanup_on_restart removed - history preserved across restarts
       saved_sessions:
         enabled: false
         max_saved: 50

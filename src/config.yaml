@@ -74,11 +74,11 @@ chat:
         max_age_hours: 24        # Messages older than 24h
         max_messages: 1000       # Total messages across all sessions
         max_sessions: 2          # Active conversation sessions
-        cleanup_interval_minutes: 2
+        cleanup_interval_minutes: 30  # How often (minutes) to check for max_age_hours
 
         # Clear triggers and history management
         clear_triggers_before_full_wipe: 2  # Clear history after N clear triggers
-        auto_cleanup_on_restart: true        # Clear history when app restarts
+        # auto_cleanup_on_restart removed - history preserved across restarts
 
       # Session management
       saved_sessions:
