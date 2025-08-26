@@ -195,7 +195,7 @@ logging:
 
     # MCP connection logging
     mcp:
-      level: "INFO"                  # Specific level for MCP
+      level: "WARNING"                  # Specific level for MCP
       enable_features:
         connection_attempts: true    # Log connection attempts
         health_checks: true          # Log health checks
