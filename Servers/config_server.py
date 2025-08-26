@@ -45,6 +45,13 @@ TOOL_TOGGLES = {
     "set_include_reasoning": True,
     "set_reasoning": True,
     "reset_runtime_config_to_defaults": True,
+    # Logging configuration tools
+    "get_logging_config": True,
+    "set_global_log_level": True,
+    "set_module_log_level": True,
+    "set_logging_feature": True,
+    "set_logging_format": True,
+    "set_advanced_logging_option": True,
 }
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -565,11 +572,293 @@ def reset_runtime_config_to_defaults() -> str:
         return f"Error resetting runtime configuration: {e}"
 
 
+# Logging configuration tools
+
+@tool_if("get_logging_config")
+def get_logging_config() -> str:
+    """Get the current logging configuration"""
+    config = config_manager.get_config()
+    logging_config = config.get("logging", {})
+
+    if not logging_config:
+        return "No logging configuration found"
+
+    # Format global logging settings
+    global_settings = []
+    if "level" in logging_config:
+        global_settings.append(f"Global level: {logging_config['level']}")
+    if "format" in logging_config:
+        global_settings.append(f"Format: {logging_config['format']}")
+
+    # Format advanced settings
+    advanced = logging_config.get("advanced", {})
+    if advanced:
+        advanced_settings = []
+        for key, value in advanced.items():
+            advanced_settings.append(f"  {key}: {value}")
+        if advanced_settings:
+            global_settings.append("Advanced settings:")
+            global_settings.extend(advanced_settings)
+
+    # Format module-specific settings
+    modules = logging_config.get("modules", {})
+    module_settings = []
+    for module_name, module_config in modules.items():
+        module_settings.append(f"Module '{module_name}':")
+        if "level" in module_config:
+            module_settings.append(f"  Level: {module_config['level']}")
+
+        features = module_config.get("enable_features", {})
+        if features:
+            enabled_features = [f for f, enabled in features.items() if enabled]
+            if enabled_features:
+                module_settings.append(f"  Enabled features: {', '.join(enabled_features)}")
+
+        truncate_lengths = module_config.get("truncate_lengths", {})
+        if truncate_lengths:
+            truncates = [f"{k}: {v}" for k, v in truncate_lengths.items()]
+            module_settings.append(f"  Truncate lengths: {', '.join(truncates)}")
+
+        # Add other module-specific settings
+        for key, value in module_config.items():
+            if key not in ["level", "enable_features", "truncate_lengths"]:
+                module_settings.append(f"  {key}: {value}")
+
+    # Combine all sections
+    result_parts = []
+    if global_settings:
+        result_parts.append("Global logging settings:")
+        result_parts.extend(global_settings)
+
+    if module_settings:
+        if result_parts:
+            result_parts.append("")
+        result_parts.append("Module-specific settings:")
+        result_parts.extend(module_settings)
+
+    return "\n".join(result_parts) if result_parts else "Empty logging configuration"
+
+
+@tool_if("set_global_log_level")
+def set_global_log_level(level: str) -> str:
+    """
+    Set the global logging level.
+
+    Valid levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    """
+    valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    normalized_level = level.upper().strip()
+
+    if normalized_level not in valid_levels:
+        return f"Error: Invalid log level '{level}'. Valid levels: {', '.join(sorted(valid_levels))}"
+
+    config = config_manager.get_config()
+
+    # Ensure logging section exists
+    if "logging" not in config:
+        config["logging"] = {}
+
+    config["logging"]["level"] = normalized_level
+    config_manager.save_config(config)
+    return f"Global log level set to {normalized_level}"
+
+
+@tool_if("set_module_log_level")
+def set_module_log_level(module: str, level: str) -> str:
+    """
+    Set the logging level for a specific module.
+
+    Args:
+        module: Module name (e.g., 'chat', 'mcp', 'connection_pool')
+        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    """
+    valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    normalized_level = level.upper().strip()
+
+    if normalized_level not in valid_levels:
+        return f"Error: Invalid log level '{level}'. Valid levels: {', '.join(sorted(valid_levels))}"
+
+    if not module.strip():
+        return "Error: Module name cannot be empty"
+
+    normalized_module = module.strip()
+
+    config = config_manager.get_config()
+
+    # Ensure logging section exists
+    if "logging" not in config:
+        config["logging"] = {}
+
+    # Ensure modules section exists
+    if "modules" not in config["logging"]:
+        config["logging"]["modules"] = {}
+
+    # Ensure the specific module section exists
+    if normalized_module not in config["logging"]["modules"]:
+        config["logging"]["modules"][normalized_module] = {}
+
+    config["logging"]["modules"][normalized_module]["level"] = normalized_level
+    config_manager.save_config(config)
+
+    # Refresh feature flags in the logging module for immediate effect
+    _refresh_logging_feature_flags(config["logging"])
+
+    return f"Log level for module '{normalized_module}' set to {normalized_level}"
+
+
+def _refresh_logging_feature_flags(logging_config: dict) -> None:
+    """Refresh the feature flags in the logging module for immediate effect."""
+    import logging
+
+    # Module-to-logger mapping (copied from main.py for consistency)
+    module_logger_map = {
+        "chat": {"loggers": ["src.chat"]},
+        "connection_pool": {"loggers": ["src.clients"]},
+        "mcp": {"loggers": ["mcp", "src.clients.mcp_client"]}
+    }
+
+    modules_config = logging_config.get("modules", {})
+
+    # Refresh feature flags for each module
+    for module_name, module_config in modules_config.items():
+        if not isinstance(module_config, dict):
+            continue
+
+        # Store feature flags for runtime checking
+        if not hasattr(logging, '_module_features'):
+            logging._module_features = {}
+        logging._module_features[module_name] = module_config.get("enable_features", {})
+
+
+@tool_if("set_logging_feature")
+def set_logging_feature(module: str, feature: str, enabled: bool) -> str:
+    """
+    Enable or disable a specific logging feature for a module.
+
+    Args:
+        module: Module name (e.g., 'chat', 'mcp', 'connection_pool')
+        feature: Feature name (e.g., 'llm_replies', 'tool_arguments', 'tool_results')
+        enabled: True to enable, False to disable
+    """
+    if not module.strip():
+        return "Error: Module name cannot be empty"
+
+    if not feature.strip():
+        return "Error: Feature name cannot be empty"
+
+    normalized_module = module.strip()
+    normalized_feature = feature.strip()
+
+    config = config_manager.get_config()
+
+    # Ensure logging section exists
+    if "logging" not in config:
+        config["logging"] = {}
+
+    # Ensure modules section exists
+    if "modules" not in config["logging"]:
+        config["logging"]["modules"] = {}
+
+    # Ensure the specific module section exists
+    if normalized_module not in config["logging"]["modules"]:
+        config["logging"]["modules"][normalized_module] = {}
+
+    # Ensure enable_features section exists
+    if "enable_features" not in config["logging"]["modules"][normalized_module]:
+        config["logging"]["modules"][normalized_module]["enable_features"] = {}
+
+    config["logging"]["modules"][normalized_module]["enable_features"][normalized_feature] = enabled
+    config_manager.save_config(config)
+
+    # Refresh feature flags in the logging module for immediate effect
+    _refresh_logging_feature_flags(config["logging"])
+
+    action = "enabled" if enabled else "disabled"
+    return f"Feature '{normalized_feature}' {action} for module '{normalized_module}'"
+
+
+@tool_if("set_logging_format")
+def set_logging_format(format_string: str) -> str:
+    """
+    Set the global logging format string.
+
+    The format string uses Python's logging format syntax.
+    Common placeholders: %(asctime)s, %(levelname)s, %(message)s, %(name)s, etc.
+
+    Example: '%(asctime)s - %(levelname)s - %(message)s'
+    """
+    if not format_string.strip():
+        return "Error: Format string cannot be empty"
+
+    config = config_manager.get_config()
+
+    # Ensure logging section exists
+    if "logging" not in config:
+        config["logging"] = {}
+
+    config["logging"]["format"] = format_string.strip()
+    config_manager.save_config(config)
+    return f"Global log format set to: {format_string.strip()}"
+
+
+@tool_if("set_advanced_logging_option")
+def set_advanced_logging_option(option: str, value: str) -> str:
+    """
+    Set an advanced logging option.
+
+    Args:
+        option: Option name (e.g., 'async_logging', 'buffer_size', 'log_to_file', 'structured_logging')
+        value: Option value (will be parsed as bool, int, or string as appropriate)
+
+    Examples:
+        set_advanced_logging_option('async_logging', 'true')
+        set_advanced_logging_option('buffer_size', '1000')
+        set_advanced_logging_option('log_to_file', 'false')
+    """
+    if not option.strip():
+        return "Error: Option name cannot be empty"
+
+    if value is None:
+        return "Error: Option value cannot be None"
+
+    normalized_option = option.strip()
+    value_str = str(value).strip()
+
+    # Parse the value based on common patterns
+    parsed_value: Any
+    lower_value = value_str.lower()
+
+    # Handle boolean values
+    if lower_value in ('true', 'false'):
+        parsed_value = lower_value == 'true'
+    # Handle integer values
+    elif value_str.isdigit() or (value_str.startswith('-') and value_str[1:].isdigit()):
+        try:
+            parsed_value = int(value_str)
+        except ValueError:
+            parsed_value = value_str  # Fall back to string
+    # Handle string values
+    else:
+        parsed_value = value_str
+
+    config = config_manager.get_config()
+
+    # Ensure logging section exists
+    if "logging" not in config:
+        config["logging"] = {}
+
+    # Ensure advanced section exists
+    if "advanced" not in config["logging"]:
+        config["logging"]["advanced"] = {}
+
+    config["logging"]["advanced"][normalized_option] = parsed_value
+    config_manager.save_config(config)
+    return f"Advanced logging option '{normalized_option}' set to {parsed_value}"
 
 
 if __name__ == "__main__":
     # Configure logging
-    logging.basicConfig(level=logging.INFO)
+    # Logging is already configured in main.py
 
     # Log which tools are enabled
     enabled_tools = [k for k, v in TOOL_TOGGLES.items() if v]

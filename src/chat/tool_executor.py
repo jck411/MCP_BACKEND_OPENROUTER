@@ -21,6 +21,7 @@ from mcp import types
 
 from src.chat.logging_utils import (
     log_tool_args_error,
+    log_tool_arguments,
     log_tool_execution_error,
     log_tool_execution_start,
     log_tool_execution_success,
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
     from src.config import Configuration
     from src.tool_schema_manager import ToolSchemaManager
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("src.clients.mcp_client")
 
 
 class ToolExecutor:
@@ -89,6 +90,15 @@ class ToolExecutor:
                 args = {}
 
             try:
+                # Log arguments being sent to MCP server
+                mcp_config = self.configuration.get_mcp_logging_config()
+                log_tool_arguments(
+                    tool_name,
+                    args,
+                    f"call {i + 1}/{len(calls)}",
+                    mcp_config.get("tool_arguments_truncate", 500)
+                )
+
                 # Execute tool through tool manager (handles validation and routing)
                 log_tool_execution_start(tool_name, i, len(calls))
                 result = await self.tool_mgr.call_tool(tool_name, args)

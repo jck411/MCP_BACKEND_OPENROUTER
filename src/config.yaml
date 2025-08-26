@@ -52,18 +52,10 @@ chat:
       icon: "🔧"
       format: "{icon} Executing tool: {tool_name}"
 
-    # Service logging
-    logging:
-      tool_execution: true
-      tool_results: true
-      result_truncate_length: 200
-      system_prompt: false
-      llm_replies: false
-      llm_reply_truncate_length: 500
+    # Logging settings moved to consolidated logging.modules.chat section
 
 # 2. DATA STORAGE & PERSISTENCE
 # ===========================================
-chat:
   storage:
     # Database configuration
     persistence:
@@ -167,22 +159,61 @@ connection_pool:
   request_timeout_seconds: 30   # Initial response timeout
   total_timeout_seconds: 120    # Total request timeout
 
-  # Connection monitoring
-  logging:
-    enabled: true
-    connection_events: true
-    pool_stats: true
-    pool_stats_interval_seconds: 60
-    http_requests: false
-    connection_reuse: false
-    max_log_entries: 1000
+  # Logging settings moved to consolidated logging.modules.connection_pool section
 
 # 5. MONITORING & LOGGING
 # ===========================================
 logging:
   # Global logging settings
-  level: "INFO"
+  level: "WARNING"
   format: "%(asctime)s - %(levelname)s - %(message)s"
+
+  # Module-specific logging configuration
+  modules:
+    # Chat service logging
+    chat:
+      level: "INFO"                  # Specific level for chat module
+      enable_features:               # Granular feature control
+        llm_replies: true            # Log LLM responses
+        system_prompt: true          # Log system prompts
+        tool_execution: true         # Log tool execution
+        tool_results: true           # Log tool results
+      truncate_lengths:
+        llm_reply: 500               # Truncate LLM replies
+        result: 200                  # Truncate results
+
+    # Connection pool logging
+    connection_pool:
+      level: "WARNING"                  # Specific level for connection pool
+      enable_features:
+        connection_events: true      # Log connection events
+        connection_reuse: false      # Log connection reuse
+        http_requests: false         # Log HTTP requests
+        pool_stats: true             # Log pool statistics
+      pool_stats_interval_seconds: 60 # Pool stats interval
+      max_log_entries: 1000          # Max log entries to keep
+
+    # MCP connection logging
+    mcp:
+      level: "INFO"                  # Specific level for MCP
+      enable_features:
+        connection_attempts: true    # Log connection attempts
+        health_checks: true          # Log health checks
+        tool_calls: false            # Log tool calls
+        tool_arguments: true        # Log arguments sent to MCP server
+        tool_results: true          # Log results received from MCP server
+      truncate_lengths:
+        tool_arguments_truncate: 500          # Truncate tool arguments
+        tool_results_truncate: 200            # Truncate tool results
+
+  # Advanced logging options (optional)
+  advanced:
+    structured_logging: false        # Enable JSON structured logs
+    log_to_file: false               # Enable file logging
+    log_file_path: "logs/app.log"    # Log file location
+    log_rotation: "daily"            # Log rotation strategy
+    async_logging: true             # Enable async log writing
+    buffer_size: 1000                # Log buffer size for async
 
   # Connection-specific logging (can be filtered)
   # filters:
@@ -208,12 +239,7 @@ mcp:
     connection_timeout: 30.0
     ping_timeout: 10.0
 
-    # MCP-specific logging
-    logging:
-      enabled: true
-      connection_attempts: true
-      health_checks: false
-      tool_calls: false
+    # Logging settings moved to consolidated logging.modules.mcp section
 
 # ===========================================
 # CONFIGURATION END

@@ -413,10 +413,32 @@ class Configuration:
         """Get chat service configuration from YAML.
 
         Returns:
-            Chat service configuration dictionary.
+            Chat service configuration dictionary with logging merged in.
         """
         config = self._get_current_config()
-        return config.get("chat", {}).get("service", {})
+        service_config = config.get("chat", {}).get("service", {}).copy()
+
+        # Merge in chat-specific logging settings from consolidated structure
+        logging_config = config.get("logging", {})
+        chat_logging = logging_config.get("modules", {}).get("chat", {})
+
+        # Transform consolidated logging structure to expected format for backward compatibility
+        if chat_logging:
+            legacy_logging = {}
+
+            # Handle enable_features structure
+            enable_features = chat_logging.get("enable_features", {})
+            for feature, enabled in enable_features.items():
+                legacy_logging[feature] = enabled
+
+            # Handle truncate_lengths
+            truncate_lengths = chat_logging.get("truncate_lengths", {})
+            for length_type, value in truncate_lengths.items():
+                legacy_logging[length_type] = value
+
+            service_config["logging"] = legacy_logging
+
+        return service_config
 
     def get_chat_storage_config(self) -> dict[str, Any]:
         """Get chat storage configuration from YAML.
@@ -486,21 +508,43 @@ class Configuration:
             MCP logging configuration dictionary with validated defaults.
         """
         config = self._get_current_config()
-        mcp_config = config.get("mcp", {})
-        connection_config = mcp_config.get("connection", {})
-        logging_config = connection_config.get("logging", {})
+        # Get from consolidated logging section and transform to expected format
+        mcp_logging = config.get("logging", {}).get("modules", {}).get("mcp", {})
 
-        # Get values with defaults
+        # Transform to legacy format for backward compatibility
+        legacy_config = {}
+        enable_features = mcp_logging.get("enable_features", {})
+        for feature, enabled in enable_features.items():
+            legacy_config[feature] = enabled
+
+        # Handle truncate_lengths
+        truncate_lengths = mcp_logging.get("truncate_lengths", {})
+        for length_type, value in truncate_lengths.items():
+            legacy_config[length_type] = value
+
+        logging_config = legacy_config
+
+        # Get values (already have defaults from enable_features processing)
         enabled = logging_config.get("enabled", True)
-        connection_attempts = logging_config.get("connection_attempts", True)
+        connection_attempts = logging_config.get("connection_attempts", False)
         health_checks = logging_config.get("health_checks", False)
         tool_calls = logging_config.get("tool_calls", False)
+        tool_arguments = logging_config.get("tool_arguments", False)
+        tool_results = logging_config.get("tool_results", False)
+
+        # Get truncate lengths with defaults (use separate keys to avoid conflicts)
+        tool_arguments_truncate = logging_config.get("tool_arguments_truncate", 500)
+        tool_results_truncate = logging_config.get("tool_results_truncate", 200)
 
         return {
             "enabled": enabled,
             "connection_attempts": connection_attempts,
             "health_checks": health_checks,
             "tool_calls": tool_calls,
+            "tool_arguments": tool_arguments,
+            "tool_results": tool_results,
+            "tool_arguments_truncate": tool_arguments_truncate,
+            "tool_results_truncate": tool_results_truncate,
         }
 
     def get_connection_pool_config(self) -> dict[str, Any]:
@@ -548,8 +592,21 @@ class Configuration:
             Connection logging configuration dictionary with validated defaults.
         """
         config = self._get_current_config()
-        pool_config = config.get("connection_pool", {})
-        logging_config = pool_config.get("logging", {})
+        # Get from consolidated logging section and transform to expected format
+        conn_logging = config.get("logging", {}).get("modules", {}).get("connection_pool", {})
+
+        # Transform to legacy format for backward compatibility
+        legacy_config = {}
+        enable_features = conn_logging.get("enable_features", {})
+        for feature, enabled in enable_features.items():
+            legacy_config[feature] = enabled
+
+        # Copy other settings
+        for key, value in conn_logging.items():
+            if key not in ["enable_features", "level"]:
+                legacy_config[key] = value
+
+        logging_config = legacy_config
 
         # Get values with defaults (optimized for performance)
         enabled = logging_config.get("enabled", False)

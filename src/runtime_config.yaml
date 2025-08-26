@@ -2,17 +2,10 @@ _runtime_config:
   created_from_defaults: true
   default_config_path: config.yaml
   is_runtime_config: true
-  last_modified: 1756096567.591645
-  version: 18
+  last_modified: 1756217789.3510947
+  version: 10
 chat:
   service:
-    logging:
-      llm_replies: false
-      llm_reply_truncate_length: 500
-      result_truncate_length: 200
-      system_prompt: false
-      tool_execution: true
-      tool_results: true
     max_tool_hops: 8
     streaming:
       enabled: true
@@ -20,16 +13,25 @@ chat:
         interval_ms: 200
         min_chars: 1024
         persist_deltas: false
-    system_prompt: 'You are a helpful assistant with a sense of humor.
-
-      You have access to to a list of tools like setting your own configuration.
-
-      '
+    system_prompt: You are a helpful assistant. You are a helpful and funny assistant.
     tool_notifications:
       enabled: true
       format: '{icon} Executing tool: {tool_name}'
       icon: "\U0001F527"
       show_args: true
+  storage:
+    persistence:
+      db_path: chat_history.db
+      retention:
+        cleanup_interval_minutes: 30
+        clear_triggers_before_full_wipe: 2
+        max_age_hours: 24
+        max_messages: 1000
+        max_sessions: 2
+      saved_sessions:
+        enabled: false
+        max_saved: 50
+        retention_days: null
   websocket:
     allow_credentials: true
     allow_origins:
@@ -42,14 +44,6 @@ chat:
     port: 8000
 connection_pool:
   keepalive_expiry_seconds: 30
-  logging:
-    connection_events: true
-    connection_reuse: false
-    enabled: true
-    http_requests: false
-    max_log_entries: 1000
-    pool_stats: true
-    pool_stats_interval_seconds: 60
   max_connections: 10
   max_keepalive_connections: 5
   request_timeout_seconds: 30
@@ -107,68 +101,52 @@ llm:
       reasoning_effort: high
       temperature: 0.7
 logging:
+  advanced:
+    async_logging: true
+    buffer_size: 1000
+    log_file_path: logs/app.log
+    log_rotation: daily
+    log_to_file: false
+    structured_logging: false
   format: '%(asctime)s - %(levelname)s - %(message)s'
-  level: INFO
+  level: WARNING
+  modules:
+    chat:
+      enable_features:
+        llm_replies: false
+        system_prompt: false
+        tool_arguments: true
+        tool_execution: false
+        tool_results: false
+      level: INFO
+      truncate_lengths:
+        llm_reply: 500
+        result: 200
+    connection_pool:
+      enable_features:
+        connection_events: true
+        connection_reuse: false
+        http_requests: false
+        pool_stats: true
+      level: WARNING
+      max_log_entries: 1000
+      pool_stats_interval_seconds: 60
+    mcp:
+      enable_features:
+        connection_attempts: false
+        health_checks: false
+        tool_arguments: true
+        tool_calls: false
+        tool_results: false
+      level: INFO
+      truncate_lengths:
+        tool_arguments_truncate: 500
+        tool_results_truncate: 200
 mcp:
   config_file: servers_config.json
   connection:
     connection_timeout: 30.0
     initial_reconnect_delay: 1.0
-    logging:
-      connection_attempts: true
-      enabled: true
-      health_checks: false
-      tool_calls: false
     max_reconnect_attempts: 5
     max_reconnect_delay: 30.0
     ping_timeout: 10.0
-chat:
-  service:
-    logging:
-      llm_replies: false
-      llm_reply_truncate_length: 500
-      result_truncate_length: 200
-      system_prompt: false
-      tool_execution: true
-      tool_results: true
-    max_tool_hops: 8
-    streaming:
-      enabled: true
-      persistence:
-        interval_ms: 200
-        min_chars: 1024
-        persist_deltas: false
-    system_prompt: 'You are a helpful assistant with a sense of humor.
-
-      You have access to to a list of tools like setting your own configuration.
-
-      '
-    tool_notifications:
-      enabled: true
-      format: '{icon} Executing tool: {tool_name}'
-      icon: "\U0001F527"
-      show_args: true
-  storage:
-    persistence:
-      db_path: chat_history.db
-      retention:
-        cleanup_interval_minutes: 2
-        max_age_hours: 24
-        max_messages: 1000
-        max_sessions: 2
-        clear_triggers_before_full_wipe: 2
-        # auto_cleanup_on_restart removed - history preserved across restarts
-      saved_sessions:
-        enabled: false
-        max_saved: 50
-        retention_days: null
-  websocket:
-    allow_credentials: true
-    allow_origins:
-    - '*'
-    endpoint: /ws/chat
-    host: localhost
-    max_message_size: 16777216
-    ping_interval: 20
-    ping_timeout: 10
-    port: 8000

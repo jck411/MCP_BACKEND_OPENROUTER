@@ -73,6 +73,10 @@ class MCPClient:
         # Initialize reconnect delay to the configured initial value
         self._reconnect_delay: float = self._initial_reconnect_delay
 
+        # Store logging configuration
+        self._tool_results_enabled: bool = conn_config.get("tool_results", False)
+        self._tool_results_truncate: int = conn_config.get("tool_results_truncate", 200)
+
         # Log configuration for debugging
         logging.info(
             f"MCP client '{name}' configured with: "
@@ -418,6 +422,14 @@ class MCPClient:
 
             result = await self.session.call_tool(name, arguments)
             logging.info(f"Tool '{name}' executed successfully")
+
+            # Log tool results if enabled
+            if self._tool_results_enabled:
+                results_str = str(result)
+                if len(results_str) > self._tool_results_truncate:
+                    results_str = results_str[:self._tool_results_truncate] + "..."
+                logging.info(f"← MCP[{name}]: results ({self.name}): {results_str}")
+
             return result
         except McpError as e:
             logging.error(f"MCP error calling tool '{name}': {e.error.message}")

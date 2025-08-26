@@ -103,6 +103,7 @@ async def main():
 if __name__ == "__main__":
     import logging
 
+    # Configure basic logging for standalone execution
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
