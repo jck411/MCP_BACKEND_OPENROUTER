@@ -23,6 +23,7 @@ dependencies = [
     "asyncinotify>=4.2.1",
     "h2>=4.2.0",
     "fastmcp>=2.11.3",
+    "requests>=2.32.5",
 ]
 
 [project.scripts]

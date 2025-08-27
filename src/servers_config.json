@@ -6,21 +6,28 @@
       "enabled": true,
       "command": "uv",
       "args": ["run", "python", "Servers/config_server.py"],
-      "cwd": "/home/jack/MCP_PLATFORM_FastMCP"
+      "cwd": "/home/jack/REPOS/MCP_BACKEND_OPENROUTER"
+    },
+    "openrouter_models": {
+      "_comment": "OpenRouter AI models search and analysis server",
+      "enabled": true,
+      "command": "uv",
+      "args": ["run", "python", "Servers/openrouter_models_server.py"],
+      "cwd": "/home/jack/REPOS/MCP_BACKEND_OPENROUTER"
     },
     "template": {
       "_comment": "Disabled server - useful for testing",
       "enabled": false,
       "command": "uv",
       "args": ["run", "python", "Servers/demo_resources_server.py"],
-      "cwd": "/home/jack/MCP_PLATFORM_FastMCP"
+      "cwd": "/home/jack/REPOS/MCP_BACKEND_OPENROUTER"
     },
     "demo_prompt": {
       "_comment": "Prompt-only server - no tools or resources",
       "enabled": false,
       "command": "uv",
       "args": ["run", "python", "Servers/demo_prompt_server.py"],
-      "cwd": "/home/jack/MCP_PLATFORM_FastMCP"
+      "cwd": "/home/jack/REPOS/MCP_BACKEND_OPENROUTER"
     }
   },
   "settings": {
