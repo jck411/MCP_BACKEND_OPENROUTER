@@ -11,10 +11,13 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}🔧 Running ruff format...${NC}"
-uv run ruff format src/
+uv run ruff format src/ Servers/ scripts/
+
+echo -e "${BLUE}🧼 Fixing whitespace-only issues (blank lines, trailing spaces)...${NC}"
+uv run ruff check --preview --fix --unsafe-fixes --select W291,W293,E3 src/ Servers/ scripts/
 
 echo -e "${BLUE}🔍 Running ruff check with auto-fix (ignoring line length)...${NC}"
-uv run ruff check --fix --ignore E501 src/
+uv run ruff check --fix --ignore E501 src/ Servers/ scripts/
 
 echo -e "${GREEN}✅ Code formatting complete!${NC}"
 echo -e "${YELLOW}💡 Note: Run 'uv run ruff check src/' to see all issues including line length${NC}"

@@ -40,23 +40,15 @@ class ChatRepository(Protocol):
 
     async def add_event(self, event: ChatEvent) -> bool: ...
 
-    async def get_events(
-        self, conversation_id: str, limit: int | None = None
-    ) -> list[ChatEvent]: ...
+    async def get_events(self, conversation_id: str, limit: int | None = None) -> list[ChatEvent]: ...
 
-    async def get_conversation_history(
-        self, conversation_id: str, limit: int | None = None
-    ) -> list[ChatEvent]: ...
+    async def get_conversation_history(self, conversation_id: str, limit: int | None = None) -> list[ChatEvent]: ...
 
     async def list_conversations(self) -> list[str]: ...
 
-    async def get_event_by_request_id(
-        self, conversation_id: str, request_id: str
-    ) -> ChatEvent | None: ...
+    async def get_event_by_request_id(self, conversation_id: str, request_id: str) -> ChatEvent | None: ...
 
-    async def get_last_assistant_reply_id(
-        self, conversation_id: str, user_request_id: str
-    ) -> str | None: ...
+    async def get_last_assistant_reply_id(self, conversation_id: str, user_request_id: str) -> str | None: ...
 
     async def compact_deltas(
         self,
@@ -68,9 +60,7 @@ class ChatRepository(Protocol):
 
     async def handle_clear_session(self) -> bool: ...
 
-    async def handle_user_message_persistence(
-        self, conversation_id: str, user_msg: str, request_id: str
-    ) -> bool:
+    async def handle_user_message_persistence(self, conversation_id: str, user_msg: str, request_id: str) -> bool:
         """
         Handle user message persistence with idempotency checks.
 
@@ -80,9 +70,7 @@ class ChatRepository(Protocol):
         """
         ...
 
-    async def get_existing_assistant_response(
-        self, conversation_id: str, request_id: str
-    ) -> ChatEvent | None:
+    async def get_existing_assistant_response(self, conversation_id: str, request_id: str) -> ChatEvent | None:
         """Get existing assistant response for a request_id if it exists."""
         ...
 
@@ -109,9 +97,7 @@ class ChatRepository(Protocol):
 class SavedSessionsRepository(Protocol):
     """Protocol for repositories that support manual saved sessions."""
 
-    async def save_session(
-        self, conversation_id: str, name: str | None = None
-    ) -> str: ...
+    async def save_session(self, conversation_id: str, name: str | None = None) -> str: ...
 
     async def list_saved_sessions(self) -> list[dict[str, Any]]: ...
 

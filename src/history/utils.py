@@ -40,9 +40,7 @@ async def demo_basic_storage():
     logger.info(f"User message added: {success}")
 
     # Test assistant message with tool calls
-    tool_call = ToolCall(
-        id="call_123", name="get_weather", arguments={"location": "San Francisco"}
-    )
+    tool_call = ToolCall(id="call_123", name="get_weather", arguments={"location": "San Francisco"})
     asst_ev = ChatEvent(
         conversation_id=conv_id,
         type="assistant_message",

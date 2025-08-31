@@ -69,9 +69,7 @@ class ToolSchemaManager:
         - Stores ToolInfo with original MCP tool metadata (no schema transformation)
         """
         if not client.is_connected:
-            logger.warning(
-                f"Skipping tool registration for disconnected client '{client.name}'"
-            )
+            logger.warning(f"Skipping tool registration for disconnected client '{client.name}'")
             return
 
         try:
@@ -81,9 +79,7 @@ class ToolSchemaManager:
 
                 # Handle name conflicts by prefixing with client name
                 if registry_name in self._tool_registry:
-                    logger.warning(
-                        f"Tool name conflict: '{registry_name}' already exists"
-                    )
+                    logger.warning(f"Tool name conflict: '{registry_name}' already exists")
                     registry_name = f"{client.name}_{registry_name}"
 
                 # Store complete tool information (no conversion)
@@ -97,9 +93,7 @@ class ToolSchemaManager:
     async def _register_client_prompts(self, client: MCPClient) -> None:
         """Register prompts from a specific MCP client."""
         if not client.is_connected:
-            logger.warning(
-                f"Skipping prompt registration for disconnected client '{client.name}'"
-            )
+            logger.warning(f"Skipping prompt registration for disconnected client '{client.name}'")
             return
 
         try:
@@ -107,17 +101,13 @@ class ToolSchemaManager:
             for prompt in prompts:
                 prompt_name = prompt.name
                 if prompt_name in self._prompt_registry:
-                    logger.warning(
-                        f"Prompt name conflict: '{prompt_name}' already exists"
-                    )
+                    logger.warning(f"Prompt name conflict: '{prompt_name}' already exists")
                     prompt_name = f"{client.name}_{prompt_name}"
 
                 prompt_info = PromptInfo(prompt, client)
                 self._prompt_registry[prompt_name] = prompt_info
 
-            logger.info(
-                f"Registered {len(prompts)} prompts from client '{client.name}'"
-            )
+            logger.info(f"Registered {len(prompts)} prompts from client '{client.name}'")
         except Exception as e:
             logger.error(f"Error registering prompts from client '{client.name}': {e}")
             raise
@@ -125,10 +115,7 @@ class ToolSchemaManager:
     async def _register_client_resources(self, client: MCPClient) -> None:
         """Register resources from a specific MCP client."""
         if not client.is_connected:
-            logger.warning(
-                f"Skipping resource registration for disconnected "
-                f"client '{client.name}'"
-            )
+            logger.warning(f"Skipping resource registration for disconnected client '{client.name}'")
             return
 
         try:
@@ -136,21 +123,15 @@ class ToolSchemaManager:
             for resource in resources:
                 resource_uri = str(resource.uri)
                 if resource_uri in self._resource_registry:
-                    logger.warning(
-                        f"Resource URI conflict: '{resource_uri}' already exists"
-                    )
+                    logger.warning(f"Resource URI conflict: '{resource_uri}' already exists")
                     resource_uri = f"{client.name}::{resource_uri}"
 
                 resource_info = ResourceInfo(resource, client)
                 self._resource_registry[resource_uri] = resource_info
 
-            logger.info(
-                f"Registered {len(resources)} resources from client '{client.name}'"
-            )
+            logger.info(f"Registered {len(resources)} resources from client '{client.name}'")
         except Exception as e:
-            logger.error(
-                f"Error registering resources from client '{client.name}': {e}"
-            )
+            logger.error(f"Error registering resources from client '{client.name}': {e}")
             raise
 
     def _to_openai_tool(self, registry_name: str, tool: types.Tool) -> dict[str, Any]:
@@ -182,9 +163,7 @@ class ToolSchemaManager:
             try:
                 tools.append(self._to_openai_tool(registry_name, info.tool))
             except Exception as e:
-                logger.error(
-                    f"Skipping tool '{registry_name}' due to schema error: {e}"
-                )
+                logger.error(f"Skipping tool '{registry_name}' due to schema error: {e}")
         return tools
 
     def get_tool_info(self, tool_name: str) -> ToolInfo:
@@ -231,9 +210,7 @@ class ToolSchemaManager:
         """Get list of all available resource URIs."""
         return list(self._resource_registry.keys())
 
-    async def call_tool(
-        self, tool_name: str, parameters: dict[str, Any]
-    ) -> types.CallToolResult:
+    async def call_tool(self, tool_name: str, parameters: dict[str, Any]) -> types.CallToolResult:
         """
         Call a tool with raw parameters.
 
@@ -244,9 +221,7 @@ class ToolSchemaManager:
         # tool_info.tool.name is the original (server-side) name
         return await tool_info.client.call_tool(tool_info.tool.name, parameters)
 
-    async def get_prompt(
-        self, prompt_name: str, arguments: dict[str, Any] | None = None
-    ) -> types.GetPromptResult:
+    async def get_prompt(self, prompt_name: str, arguments: dict[str, Any] | None = None) -> types.GetPromptResult:
         """Get a prompt by name with optional arguments."""
         prompt_info = self.get_prompt_info(prompt_name)
         return await prompt_info.client.get_prompt(prompt_info.prompt.name, arguments)

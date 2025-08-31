@@ -10,7 +10,7 @@ import logging
 import os
 import signal
 import sys
-from typing import Dict, Any
+from typing import Any
 
 import src.chat.chat_orchestrator
 from src.chat import ChatOrchestrator
@@ -20,7 +20,7 @@ from src.history import create_repository
 from src.websocket_server import run_websocket_server
 
 
-def _configure_advanced_logging(logging_config: Dict[str, Any]) -> None:
+def _configure_advanced_logging(logging_config: dict[str, Any]) -> None:
     """
     Advanced logging configuration with hierarchical loggers and feature control.
 
@@ -36,7 +36,7 @@ def _configure_advanced_logging(logging_config: Dict[str, Any]) -> None:
         "INFO": logging.INFO,
         "WARNING": logging.WARNING,
         "ERROR": logging.ERROR,
-        "CRITICAL": logging.CRITICAL
+        "CRITICAL": logging.CRITICAL,
     }
 
     # Set global level
@@ -48,18 +48,29 @@ def _configure_advanced_logging(logging_config: Dict[str, Any]) -> None:
         "chat": {
             "loggers": ["src.chat"],
             "default_level": "INFO",
-            "features": ["llm_replies", "system_prompt", "tool_execution", "tool_results"]
+            "features": [
+                "llm_replies",
+                "system_prompt",
+                "tool_execution",
+                "tool_results",
+            ],
         },
         "connection_pool": {
             "loggers": ["src.clients"],
             "default_level": "INFO",
-            "features": ["connection_events", "pool_stats", "http_requests"]
+            "features": ["connection_events", "pool_stats", "http_requests"],
         },
         "mcp": {
             "loggers": ["mcp", "src.clients.mcp_client"],
             "default_level": "INFO",
-            "features": ["connection_attempts", "health_checks", "tool_calls", "tool_arguments", "tool_results"]
-        }
+            "features": [
+                "connection_attempts",
+                "health_checks",
+                "tool_calls",
+                "tool_arguments",
+                "tool_results",
+            ],
+        },
     }
 
     modules_config = logging_config.get("modules", {})
@@ -70,7 +81,10 @@ def _configure_advanced_logging(logging_config: Dict[str, Any]) -> None:
             continue
 
         # Get the module's specific level, or use global default
-        module_level = module_config.get("level", module_logger_map.get(module_name, {}).get("default_level", global_level))
+        module_level = module_config.get(
+            "level",
+            module_logger_map.get(module_name, {}).get("default_level", global_level),
+        )
         level_value = level_map.get(module_level, logging.WARNING)
 
         # Set level on parent loggers (efficient - children inherit)
@@ -78,7 +92,7 @@ def _configure_advanced_logging(logging_config: Dict[str, Any]) -> None:
             logging.getLogger(logger_name).setLevel(level_value)
 
         # Store feature flags for runtime checking (more efficient than repeated config lookups)
-        if not hasattr(logging, '_module_features'):
+        if not hasattr(logging, "_module_features"):
             logging._module_features = {}
         logging._module_features[module_name] = module_config.get("enable_features", {})
 
@@ -93,7 +107,7 @@ def _configure_advanced_logging(logging_config: Dict[str, Any]) -> None:
         pass
 
 
-def _on_logging_config_change(new_config: Dict[str, Any]) -> None:
+def _on_logging_config_change(new_config: dict[str, Any]) -> None:
     """
     Handle real-time logging configuration changes.
 
@@ -112,9 +126,7 @@ def _on_logging_config_change(new_config: Dict[str, Any]) -> None:
 
 
 # Configure logging for the application
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 
 async def main() -> None:
@@ -185,9 +197,7 @@ async def main() -> None:
 
             # Run server with shutdown handling
             server_task = asyncio.create_task(
-                run_websocket_server(
-                    clients, llm_client, config.get_config_dict(), repo, config
-                )
+                run_websocket_server(clients, llm_client, config.get_config_dict(), repo, config)
             )
 
             # Wait for either server completion or shutdown signal

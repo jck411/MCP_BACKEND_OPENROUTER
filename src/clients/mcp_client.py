@@ -63,9 +63,7 @@ class MCPClient:
         # Configure connection parameters from config or use defaults
         conn_config = connection_config or {}
         self._max_reconnect_attempts: int = conn_config.get("max_reconnect_attempts", 5)
-        self._initial_reconnect_delay: float = conn_config.get(
-            "initial_reconnect_delay", 1.0
-        )
+        self._initial_reconnect_delay: float = conn_config.get("initial_reconnect_delay", 1.0)
         self._max_reconnect_delay: float = conn_config.get("max_reconnect_delay", 30.0)
         self._connection_timeout: float = conn_config.get("connection_timeout", 30.0)
         self._ping_timeout: float = conn_config.get("ping_timeout", 10.0)
@@ -155,7 +153,10 @@ class MCPClient:
         """
         while self._reconnect_attempts < self._max_reconnect_attempts:
             try:
-                logging.info(f"🔌 Attempting to connect to MCP server '{self.name}' (attempt {self._reconnect_attempts + 1}/{self._max_reconnect_attempts})")
+                logging.info(
+                    f"🔌 Attempting to connect to MCP server '{self.name}' "
+                    f"(attempt {self._reconnect_attempts + 1}/{self._max_reconnect_attempts})"
+                )
                 await self._attempt_connection()
                 self._is_connected = True
                 self._reconnect_attempts = 0
@@ -171,8 +172,7 @@ class MCPClient:
                     # Reset delay for future connection attempts
                     self._reconnect_delay = self._initial_reconnect_delay
                     logging.error(
-                        f"🔌 Failed to connect to {self.name} after "
-                        f"{self._max_reconnect_attempts} attempts: {e}"
+                        f"🔌 Failed to connect to {self.name} after {self._max_reconnect_attempts} attempts: {e}"
                     )
                     raise
 
@@ -183,9 +183,7 @@ class MCPClient:
                 await asyncio.sleep(self._reconnect_delay)
 
                 # Apply exponential backoff with maximum delay limit
-                self._reconnect_delay = min(
-                    self._reconnect_delay * 2, self._max_reconnect_delay
-                )
+                self._reconnect_delay = min(self._reconnect_delay * 2, self._max_reconnect_delay)
 
     async def _attempt_connection(self) -> None:
         """
@@ -219,23 +217,17 @@ class MCPClient:
         command = self._resolve_command()
 
         if not command:
-            raise ValueError(
-                f"Command '{self.config.get('command')}' not found in PATH"
-            )
+            raise ValueError(f"Command '{self.config.get('command')}' not found in PATH")
 
         # Configure server parameters with environment inheritance
         server_params = StdioServerParameters(
             command=command,
             args=self.config.get("args", []),
-            env={**os.environ, **self.config.get("env", {})}
-            if self.config.get("env")
-            else None,
+            env={**os.environ, **self.config.get("env", {})} if self.config.get("env") else None,
         )
 
         # Initialize stdio transport for server communication
-        stdio_transport = await self.exit_stack.enter_async_context(
-            stdio_client(server_params)
-        )
+        stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
         read_stream, write_stream = stdio_transport
 
         # Create client info for MCP handshake
@@ -247,9 +239,7 @@ class MCPClient:
         )
 
         # Complete MCP initialization handshake with configurable timeout
-        await asyncio.wait_for(
-            self.session.initialize(), timeout=self._connection_timeout
-        )
+        await asyncio.wait_for(self.session.initialize(), timeout=self._connection_timeout)
 
         logging.info(f"MCP client '{self.name}' connected successfully")
 
@@ -260,9 +250,7 @@ class MCPClient:
 
         try:
             # Use list_tools() as a lightweight ping with configurable timeout
-            await asyncio.wait_for(
-                self.session.list_tools(), timeout=self._ping_timeout
-            )
+            await asyncio.wait_for(self.session.list_tools(), timeout=self._ping_timeout)
             return True
         except Exception as e:
             logging.warning(f"Ping failed for {self.name}: {e}")
@@ -283,9 +271,7 @@ class MCPClient:
             result = await self.session.list_tools()
             return result.tools
         except McpError as e:
-            logging.error(
-                f"MCP error listing tools from {self.name}: {e.error.message}"
-            )
+            logging.error(f"MCP error listing tools from {self.name}: {e.error.message}")
             raise
         except Exception as e:
             logging.error(f"Error listing tools from {self.name}: {e}")
@@ -310,9 +296,7 @@ class MCPClient:
             result = await self.session.list_prompts()
             return result.prompts
         except McpError as e:
-            logging.error(
-                f"MCP error listing prompts from {self.name}: {e.error.message}"
-            )
+            logging.error(f"MCP error listing prompts from {self.name}: {e.error.message}")
             raise
         except Exception as e:
             logging.error(f"Error listing prompts from {self.name}: {e}")
@@ -323,9 +307,7 @@ class MCPClient:
                 )
             ) from e
 
-    async def get_prompt(
-        self, name: str, arguments: dict[str, Any] | None = None
-    ) -> types.GetPromptResult:
+    async def get_prompt(self, name: str, arguments: dict[str, Any] | None = None) -> types.GetPromptResult:
         """Get a prompt by name using official SDK patterns."""
         if not self.session:
             raise McpError(
@@ -338,9 +320,7 @@ class MCPClient:
         try:
             return await self.session.get_prompt(name, arguments)
         except McpError as e:
-            logging.error(
-                f"MCP error getting prompt '{name}' from {self.name}: {e.error.message}"
-            )
+            logging.error(f"MCP error getting prompt '{name}' from {self.name}: {e.error.message}")
             raise
         except Exception as e:
             logging.error(f"Error getting prompt '{name}' from {self.name}: {e}")
@@ -365,9 +345,7 @@ class MCPClient:
             result = await self.session.list_resources()
             return result.resources
         except McpError as e:
-            logging.error(
-                f"MCP error listing resources from {self.name}: {e.error.message}"
-            )
+            logging.error(f"MCP error listing resources from {self.name}: {e.error.message}")
             raise
         except Exception as e:
             logging.error(f"Error listing resources from {self.name}: {e}")
@@ -391,10 +369,7 @@ class MCPClient:
         try:
             return await self.session.read_resource(uri)
         except McpError as e:
-            logging.error(
-                f"MCP error reading resource '{uri}' from {self.name}: "
-                f"{e.error.message}"
-            )
+            logging.error(f"MCP error reading resource '{uri}' from {self.name}: {e.error.message}")
             raise
         except Exception as e:
             logging.error(f"Error reading resource '{uri}' from {self.name}: {e}")
@@ -405,9 +380,7 @@ class MCPClient:
                 )
             ) from e
 
-    async def call_tool(
-        self, name: str, arguments: dict[str, Any] | None = None
-    ) -> types.CallToolResult:
+    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> types.CallToolResult:
         """Call a tool using official SDK patterns."""
         if not self.session:
             raise McpError(
@@ -427,7 +400,7 @@ class MCPClient:
             if self._tool_results_enabled:
                 results_str = str(result)
                 if len(results_str) > self._tool_results_truncate:
-                    results_str = results_str[:self._tool_results_truncate] + "..."
+                    results_str = results_str[: self._tool_results_truncate] + "..."
                 logging.info(f"← MCP[{name}]: results ({self.name}): {results_str}")
 
             return result

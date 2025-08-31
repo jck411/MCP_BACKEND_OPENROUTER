@@ -124,9 +124,7 @@ class WebSocketServer:
 
         # Session management endpoints (AutoPersistRepo)
         @router.post("/sessions/{conversation_id}/save")
-        async def save_session(
-            conversation_id: str, name: str | None = None
-        ) -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
+        async def save_session(conversation_id: str, name: str | None = None) -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
             if isinstance(self.repo, SavedSessionsRepository):
                 saved_id: str = await self.repo.save_session(conversation_id, name)
                 return {"saved_id": saved_id}
@@ -176,10 +174,7 @@ class WebSocketServer:
                     await self._send_error_response(
                         websocket,
                         message_data.get("request_id", "unknown"),
-                        (
-                            "Unknown message format. "
-                            "Expected 'action': 'chat' or 'clear_session'"
-                        ),
+                        ("Unknown message format. Expected 'action': 'chat' or 'clear_session'"),
                     )
 
         except WebSocketDisconnect:
@@ -195,9 +190,7 @@ class WebSocketServer:
         finally:
             self._disconnect_websocket(websocket)
 
-    async def _handle_chat_message(
-        self, websocket: WebSocket, message_data: dict[str, Any]
-    ):
+    async def _handle_chat_message(self, websocket: WebSocket, message_data: dict[str, Any]):
         """Handle a chat message from the frontend with Pydantic validation."""
         try:
             # Validate message structure using Pydantic
@@ -255,22 +248,16 @@ class WebSocketServer:
 
             if streaming:
                 # Streaming mode: real-time chunks
-                await self._handle_streaming_chat(
-                    websocket, request_id, conversation_id, user_message
-                )
+                await self._handle_streaming_chat(websocket, request_id, conversation_id, user_message)
             else:
                 # Non-streaming mode: single final assistant message
-                await self._handle_non_streaming_chat(
-                    websocket, request_id, conversation_id, user_message
-                )
+                await self._handle_non_streaming_chat(websocket, request_id, conversation_id, user_message)
 
         except Exception as e:
             logger.error(f"Error processing chat message: {e}")
             await self._send_error_response(websocket, request_id, str(e))
 
-    async def _handle_clear_session(
-        self, websocket: WebSocket, message_data: dict[str, Any]
-    ):
+    async def _handle_clear_session(self, websocket: WebSocket, message_data: dict[str, Any]):
         """Handle a clear session request from the frontend."""
         request_id = message_data.get("request_id", str(uuid.uuid4()))
 
@@ -283,19 +270,12 @@ class WebSocketServer:
             full_wipe_occurred = await self.repo.handle_clear_session()
             if full_wipe_occurred:
                 retention_conf = (
-                    self.config.get("chat", {})
-                    .get("storage", {})
-                    .get("persistence", {})
-                    .get("retention", {})
+                    self.config.get("chat", {}).get("storage", {}).get("persistence", {}).get("retention", {})
                 )
                 clear_triggers = retention_conf.get("clear_triggers_before_full_wipe")
                 logger.info(
                     "Full history wipe occurred%s",
-                    (
-                        f" on {clear_triggers}th clear session"
-                        if isinstance(clear_triggers, int)
-                        else ""
-                    ),
+                    (f" on {clear_triggers}th clear session" if isinstance(clear_triggers, int) else ""),
                 )
 
             # Only create new conversation_id if full wipe occurred
@@ -312,10 +292,7 @@ class WebSocketServer:
                 new_conversation_id = old_conversation_id  # Keep same conversation
                 counter = getattr(self.repo, "_clear_session_counter", "?")
                 clear_triggers = getattr(self.repo, "clear_triggers_before_full_wipe", "N/A")
-                logger.info(
-                    f"UI clear only: Session {old_conversation_id} "
-                    f"(counter: {counter}/{clear_triggers})"
-                )
+                logger.info(f"UI clear only: Session {old_conversation_id} (counter: {counter}/{clear_triggers})")
 
             # Send success response
             await websocket.send_text(
@@ -337,17 +314,11 @@ class WebSocketServer:
 
         except Exception as e:
             logger.error(f"Error clearing session: {e}")
-            await self._send_error_response(
-                websocket, request_id, f"Clear session failed: {e}"
-            )
+            await self._send_error_response(websocket, request_id, f"Clear session failed: {e}")
 
-    async def _send_error_response(
-        self, websocket: WebSocket, request_id: str, error_message: str
-    ):
+    async def _send_error_response(self, websocket: WebSocket, request_id: str, error_message: str):
         """Send error response using Pydantic model."""
-        response = WebSocketResponse(
-            request_id=request_id, status="error", chunk={"error": error_message}
-        )
+        response = WebSocketResponse(request_id=request_id, status="error", chunk={"error": error_message})
         await websocket.send_text(response.model_dump_json())
 
     async def _handle_streaming_chat(
@@ -359,9 +330,7 @@ class WebSocketServer:
     ):
         """Handle streaming chat response."""
         # Stream response chunks using new signature (no external history needed)
-        async for chat_message in self.chat_service.process_message(
-            conversation_id, user_message, request_id
-        ):
+        async for chat_message in self.chat_service.process_message(conversation_id, user_message, request_id):
             await self._send_chat_response(websocket, request_id, chat_message)
 
         # Send completion signal
@@ -413,15 +382,9 @@ class WebSocketServer:
             )
         )
 
-    async def _send_chat_response(
-        self, websocket: WebSocket, request_id: str, chat_message: ChatMessage
-    ):
+    async def _send_chat_response(self, websocket: WebSocket, request_id: str, chat_message: ChatMessage):
         """Send a chat response to the frontend."""
-        logger.info(
-            "Sending WebSocket message: "
-            f"type={chat_message.type}, "
-            f"content={chat_message.content[:50]}..."
-        )
+        logger.info(f"Sending WebSocket message: type={chat_message.type}, content={chat_message.content[:50]}...")
 
         # Convert chat service message to frontend format
         if chat_message.type == "text":
@@ -489,18 +452,13 @@ class WebSocketServer:
             self.conversation_ids[websocket] = recent_conversation_id
 
             # Load conversation history
-            history = await self.repo.get_conversation_history(
-                recent_conversation_id, limit=50
-            )
+            history = await self.repo.get_conversation_history(recent_conversation_id, limit=50)
 
             if not history:
                 logger.info(f"Resuming empty conversation: {recent_conversation_id}")
                 return
 
-            logger.info(
-                f"Loading {len(history)} messages from conversation: "
-                f"{recent_conversation_id}"
-            )
+            logger.info(f"Loading {len(history)} messages from conversation: {recent_conversation_id}")
 
             # Send history to frontend as a special message
             history_messages: list[dict[str, Any]] = []
@@ -553,9 +511,7 @@ class WebSocketServer:
                     )
                 )
 
-                logger.info(
-                    f"Sent conversation history: {len(history_messages)} messages"
-                )
+                logger.info(f"Sent conversation history: {len(history_messages)} messages")
 
         except Exception as e:
             logger.error(f"Error loading previous conversation: {e}")
@@ -574,10 +530,7 @@ class WebSocketServer:
             # Try to resume the most recent conversation
             await self._load_previous_conversation(websocket)
 
-            logger.info(
-                f"WebSocket connection established. Total connections: "
-                f"{len(self.active_connections)}"
-            )
+            logger.info(f"WebSocket connection established. Total connections: {len(self.active_connections)}")
         except Exception as e:
             logger.error(f"Failed to accept WebSocket connection: {e}")
             raise
@@ -589,10 +542,7 @@ class WebSocketServer:
         # Clean up conversation id
         if websocket in self.conversation_ids:
             del self.conversation_ids[websocket]
-        logger.info(
-            f"WebSocket connection closed. Total connections: "
-            f"{len(self.active_connections)}"
-        )
+        logger.info(f"WebSocket connection closed. Total connections: {len(self.active_connections)}")
 
     async def start_server(self):
         """Start the WebSocket server with comprehensive cleanup."""

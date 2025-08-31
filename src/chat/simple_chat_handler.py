@@ -80,22 +80,16 @@ class SimpleChatHandler:
         logger.info("Starting non-streaming chat for request_id=%s", request_id)
 
         # Check for existing response to prevent double-billing
-        existing_response = await self.repo.get_existing_assistant_response(
-            conversation_id, request_id
-        )
+        existing_response = await self.repo.get_existing_assistant_response(conversation_id, request_id)
         if existing_response:
             logger.debug("Found cached response, returning without invoking LLM")
             return existing_response
 
         # Handle user message persistence (handles idempotency internally)
-        should_continue = await self.repo.handle_user_message_persistence(
-            conversation_id, user_msg, request_id
-        )
+        should_continue = await self.repo.handle_user_message_persistence(conversation_id, user_msg, request_id)
         if not should_continue:
             # Race condition: duplicate request resolved after we checked
-            existing_response = await self.repo.get_existing_assistant_response(
-                conversation_id, request_id
-            )
+            existing_response = await self.repo.get_existing_assistant_response(conversation_id, request_id)
             if existing_response:
                 logger.debug("Race condition resolved, returning cached response")
                 return existing_response
@@ -103,9 +97,7 @@ class SimpleChatHandler:
         # Build conversation history
         logger.debug("Building conversation history for request_id=%s", request_id)
         system_prompt = await self.resource_loader.make_system_prompt()
-        conv_dict = await self.repo.build_llm_conversation(
-            conversation_id, user_msg, system_prompt
-        )
+        conv_dict = await self.repo.build_llm_conversation(conversation_id, user_msg, system_prompt)
 
         # Convert to typed ConversationHistory
         conv = self._convert_to_conversation_history(conv_dict)
@@ -137,9 +129,7 @@ class SimpleChatHandler:
         assistant_full_text = ""
         model = ""
 
-        reply = await self.llm_client.get_response_with_tools(
-            conv.get_api_format(), tools_payload
-        )
+        reply = await self.llm_client.get_response_with_tools(conv.get_api_format(), tools_payload)
         assistant_msg = reply.message
 
         # Log LLM reply if configured
@@ -180,9 +170,7 @@ class SimpleChatHandler:
                     args = {}
 
                 log_tool_execution_start(tool_name)
-                result: types.CallToolResult = (
-                    await self.tool_executor.tool_mgr.call_tool(tool_name, args)
-                )
+                result: types.CallToolResult = await self.tool_executor.tool_mgr.call_tool(tool_name, args)
                 content: str = self.tool_executor.pluck_content(result)
                 log_tool_execution_success(tool_name, len(content))
 
@@ -213,9 +201,7 @@ class SimpleChatHandler:
 
             # Get follow-up response
             logger.info("→ LLM: requesting follow-up response (hop %d)", hops + 1)
-            reply = await self.llm_client.get_response_with_tools(
-                conv.get_api_format(), tools_payload
-            )
+            reply = await self.llm_client.get_response_with_tools(conv.get_api_format(), tools_payload)
             assistant_msg = reply.message
 
             # Log LLM reply if configured
@@ -234,22 +220,16 @@ class SimpleChatHandler:
         logger.info("← LLM: response generation completed")
         return assistant_full_text, model
 
-    def _convert_to_conversation_history(
-        self, conv_dict: list[dict[str, Any]]
-    ) -> ConversationHistory:
+    def _convert_to_conversation_history(self, conv_dict: list[dict[str, Any]]) -> ConversationHistory:
         """Convert dictionary conversation to typed ConversationHistory."""
         history = ConversationHistory()
 
         for msg_dict in conv_dict:
             role = msg_dict.get("role")
             if role == "system":
-                history.system_prompt = SystemMessage(
-                    role="system", content=msg_dict.get("content", "")
-                )
+                history.system_prompt = SystemMessage(role="system", content=msg_dict.get("content", ""))
             elif role == "user":
-                history.add_message(
-                    UserMessage(role="user", content=msg_dict.get("content", ""))
-                )
+                history.add_message(UserMessage(role="user", content=msg_dict.get("content", "")))
             elif role == "assistant":
                 history.add_message(
                     AssistantMessage(

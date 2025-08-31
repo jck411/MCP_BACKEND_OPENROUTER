@@ -28,13 +28,9 @@ logger = logging.getLogger(__name__)
 class ResourceLoader:
     """Handles resource loading and system prompt construction."""
 
-    def __init__(
-        self, tool_mgr: ToolSchemaManager | None, configuration: Configuration
-    ):
+    def __init__(self, tool_mgr: ToolSchemaManager | None, configuration: Configuration):
         self.tool_mgr = tool_mgr
-        self.configuration = (
-            configuration  # Use Configuration object instead of static dict
-        )
+        self.configuration = configuration  # Use Configuration object instead of static dict
         self._resource_catalog: list[str] = []
 
     async def initialize(self) -> str:
@@ -95,9 +91,7 @@ class ResourceLoader:
 
         # Get system prompt from current configuration (runtime-aware)
         chat_service_config = self.configuration.get_chat_service_config()
-        base = chat_service_config.get(
-            "system_prompt", "You are a helpful assistant."
-        ).rstrip()
+        base = chat_service_config.get("system_prompt", "You are a helpful assistant.").rstrip()
 
         if not self.tool_mgr:
             logger.warning("No tool manager available for system prompt construction")
@@ -118,9 +112,7 @@ class ResourceLoader:
                 base += f"\n\n**{name}** ({uri}):"
 
                 for content in content_info:
-                    content_item: (
-                        types.TextResourceContents | types.BlobResourceContents
-                    ) = content
+                    content_item: types.TextResourceContents | types.BlobResourceContents = content
                     match content_item:
                         case types.TextResourceContents():
                             lines = content_item.text.strip().split("\n")
@@ -133,9 +125,7 @@ class ResourceLoader:
         # Add available prompts section
         prompt_names: list[str] = self.tool_mgr.list_available_prompts()
         if prompt_names:
-            logger.info(
-                "→ Resources: including %d prompts in system prompt", len(prompt_names)
-            )
+            logger.info("→ Resources: including %d prompts in system prompt", len(prompt_names))
             prompt_list: list[str] = []
             for name in prompt_names:
                 pinfo = self.tool_mgr.get_prompt_info(name)
@@ -144,9 +134,7 @@ class ResourceLoader:
                     prompt_list.append(f"• **{name}**: {desc}")
 
             prompts_text = "\n".join(prompt_list)
-            base += (
-                f"\n\n**Available Prompts** (use apply_prompt method):\n{prompts_text}"
-            )
+            base += f"\n\n**Available Prompts** (use apply_prompt method):\n{prompts_text}"
 
         logger.debug("← Resources: system prompt built, length=%d chars", len(base))
         return base
@@ -161,9 +149,7 @@ class ResourceLoader:
         This implements graceful degradation by only including working resources
         in the system prompt, following best practices for resource management.
         """
-        available_resources: dict[
-            str, list[types.TextResourceContents | types.BlobResourceContents]
-        ] = {}
+        available_resources: dict[str, list[types.TextResourceContents | types.BlobResourceContents]] = {}
 
         if not self._resource_catalog or not self.tool_mgr:
             logger.debug("No resources in catalog or no tool manager available")
@@ -200,15 +186,12 @@ class ResourceLoader:
             )
         else:
             logger.info(
-                "← Resources: no resources are currently available - "
-                "system prompt will not include resource section"
+                "← Resources: no resources are currently available - system prompt will not include resource section"
             )
 
         return available_resources
 
-    async def apply_prompt(
-        self, name: str, args: dict[str, str]
-    ) -> list[dict[str, str]]:
+    async def apply_prompt(self, name: str, args: dict[str, str]) -> list[dict[str, str]]:
         """Apply a parameterized prompt and return conversation messages."""
         if not self.tool_mgr:
             raise RuntimeError("Tool manager not initialized")
@@ -222,9 +205,7 @@ class ResourceLoader:
                 for m in res.messages
                 if isinstance(m.content, types.TextContent)
             ]
-            logger.info(
-                "← Resources: prompt applied successfully, %d messages", len(messages)
-            )
+            logger.info("← Resources: prompt applied successfully, %d messages", len(messages))
             return messages
         except Exception as e:
             logger.error("← Resources: failed to apply prompt '%s': %s", name, e)

@@ -18,7 +18,6 @@ from pydantic import BaseModel, Field
 Role = Literal["system", "user", "assistant", "tool"]
 
 
-
 # ---------- Content models ----------
 
 

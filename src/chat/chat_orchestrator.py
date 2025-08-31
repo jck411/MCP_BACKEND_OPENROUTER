@@ -101,7 +101,8 @@ class ChatOrchestrator:
                     return await client.connect()
 
             connection_results = await asyncio.gather(
-                *(connect_with_semaphore(c) for c in self.clients), return_exceptions=True
+                *(connect_with_semaphore(c) for c in self.clients),
+                return_exceptions=True,
             )
 
             # Filter out only successfully connected clients
@@ -117,9 +118,7 @@ class ChatOrchestrator:
                     connected_clients.append(self.clients[i])
 
             if not connected_clients:
-                logger.warning(
-                    "No MCP clients connected - running with basic functionality"
-                )
+                logger.warning("No MCP clients connected - running with basic functionality")
             else:
                 logger.info(
                     "← Orchestrator: connected to %d out of %d MCP clients",
@@ -211,27 +210,19 @@ class ChatOrchestrator:
         # Validate streaming support
         self.streaming_handler.validate_streaming_support()
 
-        logger.info(
-            "→ Orchestrator: processing streaming message for request_id=%s", request_id
-        )
+        logger.info("→ Orchestrator: processing streaming message for request_id=%s", request_id)
 
         # Handle idempotency and user message persistence
-        should_continue = await self.repo.handle_user_message_persistence(
-            conversation_id, user_msg, request_id
-        )
+        should_continue = await self.repo.handle_user_message_persistence(conversation_id, user_msg, request_id)
         if not should_continue:
             logger.info("→ Orchestrator: returning cached response")
-            async for msg in self.streaming_handler.yield_existing_response(
-                conversation_id, request_id
-            ):
+            async for msg in self.streaming_handler.yield_existing_response(conversation_id, request_id):
                 yield msg
             return
 
         # Build conversation and generate response
         system_prompt = await self.resource_loader.make_system_prompt()
-        conv_dict = await self.repo.build_llm_conversation(
-            conversation_id, user_msg, system_prompt
-        )
+        conv_dict = await self.repo.build_llm_conversation(conversation_id, user_msg, system_prompt)
 
         # Convert to typed ConversationHistory for efficiency
         conv = self._convert_to_conversation_history(conv_dict)
@@ -242,9 +233,7 @@ class ChatOrchestrator:
         typed_tools = [ToolDefinition.model_validate(tool) for tool in tools_payload]
 
         # Stream and handle tool calls
-        async for msg in self.streaming_handler.stream_and_handle_tools(
-            conv, typed_tools, conversation_id, request_id
-        ):
+        async for msg in self.streaming_handler.stream_and_handle_tools(conv, typed_tools, conversation_id, request_id):
             yield msg
 
         logger.info("← Orchestrator: completed streaming message processing")
@@ -290,16 +279,12 @@ class ChatOrchestrator:
         typed_tools = [ToolDefinition.model_validate(tool) for tool in tools_payload]
 
         # Delegate to simple chat handler
-        result = await self.simple_chat_handler.chat_once(
-            conversation_id, user_msg, request_id, typed_tools
-        )
+        result = await self.simple_chat_handler.chat_once(conversation_id, user_msg, request_id, typed_tools)
 
         logger.info("← Orchestrator: completed non-streaming chat processing")
         return result
 
-    async def apply_prompt(
-        self, name: str, args: dict[str, str]
-    ) -> list[dict[str, str]]:
+    async def apply_prompt(self, name: str, args: dict[str, str]) -> list[dict[str, str]]:
         """Apply a parameterized prompt and return conversation messages."""
         await self._ready.wait()
 
@@ -307,9 +292,7 @@ class ChatOrchestrator:
             raise RuntimeError("Resource loader not initialized")
 
         logger.info("→ Orchestrator: applying prompt '%s'", name)
-        result: list[dict[str, str]] = await self.resource_loader.apply_prompt(
-            name, args
-        )
+        result: list[dict[str, str]] = await self.resource_loader.apply_prompt(name, args)
         logger.info("← Orchestrator: prompt applied successfully")
         return result
 
@@ -362,22 +345,16 @@ class ChatOrchestrator:
             return 0
         return len(self.tool_mgr.list_available_prompts())
 
-    def _convert_to_conversation_history(
-        self, conv_dict: list[dict[str, Any]]
-    ) -> ConversationHistory:
+    def _convert_to_conversation_history(self, conv_dict: list[dict[str, Any]]) -> ConversationHistory:
         """Convert dictionary conversation to typed ConversationHistory."""
         history = ConversationHistory()
 
         for msg_dict in conv_dict:
             role = msg_dict.get("role")
             if role == "system":
-                history.system_prompt = SystemMessage(
-                    role="system", content=msg_dict.get("content", "")
-                )
+                history.system_prompt = SystemMessage(role="system", content=msg_dict.get("content", ""))
             elif role == "user":
-                history.add_message(
-                    UserMessage(role="user", content=msg_dict.get("content", ""))
-                )
+                history.add_message(UserMessage(role="user", content=msg_dict.get("content", "")))
             elif role == "assistant":
                 history.add_message(
                     AssistantMessage(

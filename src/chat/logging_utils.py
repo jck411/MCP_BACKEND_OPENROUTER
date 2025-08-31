@@ -20,15 +20,13 @@ def should_log_feature(module: str, feature: str) -> bool:
 
     Uses cached feature flags for better performance during runtime.
     """
-    if hasattr(logging, '_module_features'):
-        module_features = getattr(logging, '_module_features', {}).get(module, {})
+    if hasattr(logging, "_module_features"):
+        module_features = getattr(logging, "_module_features", {}).get(module, {})
         return module_features.get(feature, False)
     return False
 
 
-def log_llm_reply(
-    reply: dict[str, Any], context: str, chat_conf: dict[str, Any]
-) -> None:
+def log_llm_reply(reply: dict[str, Any], context: str, chat_conf: dict[str, Any]) -> None:
     """
     Enhanced LLM reply logging with feature control and configuration-based truncation.
 
@@ -79,9 +77,7 @@ def log_llm_reply(
     logger.info(" | ".join(log_parts))
 
 
-def log_tool_execution_start(
-    tool_name: str, call_index: int = 0, total_calls: int = 1
-) -> None:
+def log_tool_execution_start(tool_name: str, call_index: int = 0, total_calls: int = 1) -> None:
     """
     Log the start of tool execution with consistent formatting.
 
@@ -134,9 +130,7 @@ def log_tool_args_error(tool_name: str, error: Exception) -> None:
     logger.error("Malformed JSON arguments for %s: %s", tool_name, error)
 
 
-def log_directional_flow(
-    direction: str, component: str, message: str, *args: Any
-) -> None:
+def log_directional_flow(direction: str, component: str, message: str, *args: Any) -> None:
     """
     Log directional flow messages with consistent arrow formatting.
 
@@ -191,9 +185,7 @@ def log_connection_pool_stats(active_connections: int, available_connections: in
     logger.debug(f"🔌 Connection pool: active={active_connections}, available={available_connections}")
 
 
-def log_tool_arguments(
-    tool_name: str, arguments: dict[str, Any], context: str, truncate_length: int = 500
-) -> None:
+def log_tool_arguments(tool_name: str, arguments: dict[str, Any], context: str, truncate_length: int = 500) -> None:
     """
     Log tool arguments being sent to MCP server.
 
@@ -217,9 +209,7 @@ def log_tool_arguments(
     logger.info(f"→ MCP[{tool_name}]: arguments ({context}): {args_str}")
 
 
-def log_tool_results(
-    tool_name: str, results: Any, context: str, truncate_length: int = 200
-) -> None:
+def log_tool_results(tool_name: str, results: Any, context: str, truncate_length: int = 200) -> None:
     """
     Log tool results received from MCP server.
 

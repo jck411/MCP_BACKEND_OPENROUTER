@@ -83,16 +83,14 @@ class SQLiteRepo(ChatRepository):
                         col_names = {row[1] for row in cols}
                     has_created_at_unix = "created_at_unix" in col_names
                     if not has_created_at_unix:
-                        await db.execute(
-                            "ALTER TABLE chat_events ADD COLUMN created_at_unix INTEGER"
-                        )
+                        await db.execute("ALTER TABLE chat_events ADD COLUMN created_at_unix INTEGER")
                         has_created_at_unix = True
                 except Exception:
                     pass
 
                 # Backfill nulls using best-effort parsing on existing created_at
                 if has_created_at_unix:
-                    try:
+                    with contextlib.suppress(Exception):
                         await db.execute(
                             """
                             UPDATE chat_events
@@ -112,8 +110,6 @@ class SQLiteRepo(ChatRepository):
                             WHERE created_at_unix IS NULL
                             """
                         )
-                    except Exception:
-                        pass
 
                 # Create indexes (guard created_at_unix index if column exists)
                 await db.execute("""
@@ -152,16 +148,8 @@ class SQLiteRepo(ChatRepository):
             "schema_version": event.schema_version,
             "type": event.type,
             "role": event.role,
-            "content": (
-                event.content
-                if isinstance(event.content, str)
-                else json.dumps(event.content)
-            ),
-            "tool_calls": (
-                json.dumps([tc.model_dump() for tc in event.tool_calls])
-                if event.tool_calls
-                else None
-            ),
+            "content": (event.content if isinstance(event.content, str) else json.dumps(event.content)),
+            "tool_calls": (json.dumps([tc.model_dump() for tc in event.tool_calls]) if event.tool_calls else None),
             "provider": event.provider,
             "model": event.model,
             "stop_reason": event.stop_reason,
@@ -211,10 +199,7 @@ class SQLiteRepo(ChatRepository):
             request_id = event.extra.get("request_id")
             if request_id:
                 async with db.execute(
-                    (
-                        "SELECT 1 FROM chat_events WHERE conversation_id = ? "
-                        "AND request_id = ?"
-                    ),
+                    ("SELECT 1 FROM chat_events WHERE conversation_id = ? AND request_id = ?"),
                     (event.conversation_id, request_id),
                 ) as cursor:
                     if await cursor.fetchone():
@@ -222,10 +207,7 @@ class SQLiteRepo(ChatRepository):
 
             # Get next sequence number
             async with db.execute(
-                (
-                    "SELECT COALESCE(MAX(seq), 0) + 1 FROM chat_events "
-                    "WHERE conversation_id = ?"
-                ),
+                ("SELECT COALESCE(MAX(seq), 0) + 1 FROM chat_events WHERE conversation_id = ?"),
                 (event.conversation_id,),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -243,9 +225,7 @@ class SQLiteRepo(ChatRepository):
             await db.commit()
             return True
 
-    async def get_events(
-        self, conversation_id: str, limit: int | None = None
-    ) -> list[ChatEvent]:
+    async def get_events(self, conversation_id: str, limit: int | None = None) -> list[ChatEvent]:
         await self._ensure_initialized()
 
         query = "SELECT * FROM chat_events WHERE conversation_id = ? ORDER BY seq"
@@ -261,9 +241,7 @@ class SQLiteRepo(ChatRepository):
                 rows = await cursor.fetchall()
                 return [self._deserialize_event(dict(row)) for row in rows]
 
-    async def get_conversation_history(
-        self, conversation_id: str, limit: int | None = None
-    ) -> list[ChatEvent]:
+    async def get_conversation_history(self, conversation_id: str, limit: int | None = None) -> list[ChatEvent]:
         await self._ensure_initialized()
 
         # Only get events visible to LLM
@@ -309,26 +287,19 @@ class SQLiteRepo(ChatRepository):
                 rows = await cursor.fetchall()
                 return [row[0] for row in rows]
 
-    async def get_event_by_request_id(
-        self, conversation_id: str, request_id: str
-    ) -> ChatEvent | None:
+    async def get_event_by_request_id(self, conversation_id: str, request_id: str) -> ChatEvent | None:
         await self._ensure_initialized()
 
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                (
-                    "SELECT * FROM chat_events WHERE conversation_id = ? "
-                    "AND request_id = ?"
-                ),
+                ("SELECT * FROM chat_events WHERE conversation_id = ? AND request_id = ?"),
                 (conversation_id, request_id),
             ) as cursor:
                 row = await cursor.fetchone()
                 return self._deserialize_event(dict(row)) if row else None
 
-    async def get_last_assistant_reply_id(
-        self, conversation_id: str, user_request_id: str
-    ) -> str | None:
+    async def get_last_assistant_reply_id(self, conversation_id: str, user_request_id: str) -> str | None:
         await self._ensure_initialized()
 
         async with (
@@ -363,10 +334,7 @@ class SQLiteRepo(ChatRepository):
             assistant_req_id = f"assistant:{user_request_id}"
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                (
-                    "SELECT * FROM chat_events WHERE conversation_id = ? "
-                    "AND request_id = ?"
-                ),
+                ("SELECT * FROM chat_events WHERE conversation_id = ? AND request_id = ?"),
                 (conversation_id, assistant_req_id),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -400,10 +368,7 @@ class SQLiteRepo(ChatRepository):
 
             # Get sequence number and insert
             async with db.execute(
-                (
-                    "SELECT COALESCE(MAX(seq), 0) + 1 FROM chat_events "
-                    "WHERE conversation_id = ?"
-                ),
+                ("SELECT COALESCE(MAX(seq), 0) + 1 FROM chat_events WHERE conversation_id = ?"),
                 (conversation_id,),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -430,28 +395,18 @@ class SQLiteRepo(ChatRepository):
             await db.commit()
             return True
 
-    async def handle_user_message_persistence(
-        self, conversation_id: str, user_msg: str, request_id: str
-    ) -> bool:
+    async def handle_user_message_persistence(self, conversation_id: str, user_msg: str, request_id: str) -> bool:
         """Handle user message persistence with idempotency checks."""
-        logger.debug(
-            "→ Repository: checking for existing response for request_id=%s", request_id
-        )
+        logger.debug("→ Repository: checking for existing response for request_id=%s", request_id)
 
         # Check for existing response first
-        existing_response = await self.get_existing_assistant_response(
-            conversation_id, request_id
-        )
+        existing_response = await self.get_existing_assistant_response(conversation_id, request_id)
         if existing_response:
-            logger.info(
-                "← Repository: cached response found for request_id=%s", request_id
-            )
+            logger.info("← Repository: cached response found for request_id=%s", request_id)
             return False
 
         # Persist user message
-        logger.info(
-            "→ Repository: persisting user message for request_id=%s", request_id
-        )
+        logger.info("→ Repository: persisting user message for request_id=%s", request_id)
         user_ev = ChatEvent(
             conversation_id=conversation_id,
             seq=0,  # Will be assigned by repository
@@ -463,36 +418,24 @@ class SQLiteRepo(ChatRepository):
         was_added = await self.add_event(user_ev)
 
         if not was_added:
-            logger.debug(
-                "→ Repository: duplicate message detected, re-checking for response"
-            )
+            logger.debug("→ Repository: duplicate message detected, re-checking for response")
             # Check for existing response again after duplicate detection
-            existing_response = await self.get_existing_assistant_response(
-                conversation_id, request_id
-            )
+            existing_response = await self.get_existing_assistant_response(conversation_id, request_id)
             if existing_response:
-                logger.info(
-                    "← Repository: existing response found after duplicate detection"
-                )
+                logger.info("← Repository: existing response found after duplicate detection")
                 return False
 
         logger.info("← Repository: user message persisted successfully")
         return True
 
-    async def get_existing_assistant_response(
-        self, conversation_id: str, request_id: str
-    ) -> ChatEvent | None:
+    async def get_existing_assistant_response(self, conversation_id: str, request_id: str) -> ChatEvent | None:
         """Get existing assistant response for a request_id if it exists."""
-        existing_assistant_id = await self.get_last_assistant_reply_id(
-            conversation_id, request_id
-        )
+        existing_assistant_id = await self.get_last_assistant_reply_id(conversation_id, request_id)
         if existing_assistant_id:
             events = await self.get_events(conversation_id)
             for event in events:
                 if event.id == existing_assistant_id:
-                    logger.debug(
-                        "Found cached assistant response: event_id=%s", event.id
-                    )
+                    logger.debug("Found cached assistant response: event_id=%s", event.id)
                     return event
         return None
 
@@ -520,28 +463,24 @@ class SQLiteRepo(ChatRepository):
                 event.type == "tool_result"
                 and event.extra
                 and "tool_call_id" in event.extra
+                and conv
+                and conv[-1].get("role") == "assistant"
+                and "tool_calls" in conv[-1]
             ):
                 # Only include tool results if the immediately preceding message
                 # is an assistant message with tool_calls (required by OpenAI API)
-                if (
-                    conv
-                    and conv[-1].get("role") == "assistant"
-                    and "tool_calls" in conv[-1]
-                ):
-                    conv.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": event.extra["tool_call_id"],
-                            "content": str(event.content or ""),
-                        }
-                    )
+                conv.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": event.extra["tool_call_id"],
+                        "content": str(event.content or ""),
+                    }
+                )
 
         # Add current user message
         conv.append({"role": "user", "content": user_msg})
 
-        logger.debug(
-            "Built conversation with %d messages (including system prompt)", len(conv)
-        )
+        logger.debug("Built conversation with %d messages (including system prompt)", len(conv))
         return conv
 
     async def persist_assistant_message(
@@ -553,9 +492,7 @@ class SQLiteRepo(ChatRepository):
         provider: str = "unknown",
     ) -> ChatEvent:
         """Persist final assistant message to repository."""
-        logger.info(
-            "→ Repository: persisting assistant message for request_id=%s", request_id
-        )
+        logger.info("→ Repository: persisting assistant message for request_id=%s", request_id)
 
         # Defensive: collapse accidental exact duplication (XX -> X)
         def _collapse_double(text: str) -> str:

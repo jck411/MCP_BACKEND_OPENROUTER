@@ -25,9 +25,7 @@ class Configuration:
         self.load_env()  # Load .env for API keys
         # Load default YAML config (reference only)
         self._default_config = self._load_yaml_config()
-        self._runtime_config_path = os.path.join(
-            os.path.dirname(__file__), "runtime_config.yaml"
-        )
+        self._runtime_config_path = os.path.join(os.path.dirname(__file__), "runtime_config.yaml")
         self._runtime_config_mtime: float | None = None
         self._current_config: dict[str, Any] = {}
 
@@ -84,21 +82,13 @@ class Configuration:
             self._initialize_runtime_config()
             return self._load_runtime_config()
 
-    def _deep_merge(
-        self, base: dict[str, Any], override: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _deep_merge(self, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
         """Deep merge two dictionaries, with override taking precedence."""
         result = base.copy()
 
         for key, value in override.items():
-            if (
-                key in result
-                and isinstance(result[key], dict)
-                and isinstance(value, dict)
-            ):
-                result[key] = self._deep_merge(
-                    cast(dict[str, Any], result[key]), cast(dict[str, Any], value)
-                )
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = self._deep_merge(cast(dict[str, Any], result[key]), cast(dict[str, Any], value))
             else:
                 result[key] = value
 
@@ -123,11 +113,7 @@ class Configuration:
 
             # Runtime config IS the current config (with defaults for missing values)
             # Remove runtime metadata before using as current config
-            self._current_config = {
-                k: v
-                for k, v in runtime_config.items()
-                if not k.startswith("_runtime_config")
-            }
+            self._current_config = {k: v for k, v in runtime_config.items() if not k.startswith("_runtime_config")}
 
             # Notify observers if config actually changed (not just first load)
             if old_config and self._current_config != old_config:
@@ -158,9 +144,7 @@ class Configuration:
         if callback not in self._config_change_callbacks:
             self._config_change_callbacks.append(callback)
 
-    def unsubscribe_from_changes(
-        self, callback: Callable[[dict[str, Any]], None]
-    ) -> None:
+    def unsubscribe_from_changes(self, callback: Callable[[dict[str, Any]], None]) -> None:
         """Unsubscribe from configuration change events.
 
         Args:
@@ -213,9 +197,7 @@ class Configuration:
                 try:
                     await asyncio.sleep(30)  # Much less aggressive fallback
                     if self._reload_config():
-                        logging.info(
-                            "Runtime configuration file changed - config reloaded"
-                        )
+                        logging.info("Runtime configuration file changed - config reloaded")
                 except asyncio.CancelledError:
                     break
                 except Exception as fallback_e:
@@ -238,10 +220,7 @@ class Configuration:
                 # Fall back to default config
                 default_current: Any = self._default_config
                 for default_key in path:
-                    if (
-                        isinstance(default_current, dict)
-                        and default_key in default_current
-                    ):
+                    if isinstance(default_current, dict) and default_key in default_current:
                         default_current = default_current[default_key]  # type: ignore[assignment]
                     else:
                         return default
@@ -275,9 +254,7 @@ class Configuration:
             except (yaml.YAMLError, OSError):
                 pass
 
-        current_version = current_runtime_config.get("_runtime_config", {}).get(
-            "version", 0
-        )
+        current_version = current_runtime_config.get("_runtime_config", {}).get("version", 0)
 
         # Add runtime metadata
         runtime_config = config.copy()
@@ -352,16 +329,11 @@ class Configuration:
 
         env_key = provider_key_map.get(active_provider)
         if not env_key:
-            raise ValueError(
-                f"Unknown provider '{active_provider}' - no API key mapping found"
-            )
+            raise ValueError(f"Unknown provider '{active_provider}' - no API key mapping found")
 
         api_key = os.getenv(env_key)
         if not api_key:
-            raise ValueError(
-                f"API key '{env_key}' not found in environment variables "
-                f"for provider '{active_provider}'"
-            )
+            raise ValueError(f"API key '{env_key}' not found in environment variables for provider '{active_provider}'")
 
         return api_key
 
@@ -385,9 +357,7 @@ class Configuration:
         providers = llm_config.get("providers", {})
 
         if active_provider not in providers:
-            raise ValueError(
-                f"Active provider '{active_provider}' not found in providers config"
-            )
+            raise ValueError(f"Active provider '{active_provider}' not found in providers config")
 
         return providers[active_provider]
 

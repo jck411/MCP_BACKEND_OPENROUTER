@@ -183,9 +183,7 @@ class ToolCallAccumulation(BaseModel):
         """Add tool call delta to accumulation."""
         for new_call in tool_calls:
             # Find existing call with same ID or add new one
-            existing_call = next(
-                (call for call in self.calls if call.id == new_call.id), None
-            )
+            existing_call = next((call for call in self.calls if call.id == new_call.id), None)
             if existing_call:
                 # Update existing call
                 if new_call.function.name:

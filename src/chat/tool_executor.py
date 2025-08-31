@@ -45,9 +45,7 @@ class ToolExecutor:
         self.tool_mgr = tool_mgr
         self.configuration = configuration
 
-    async def execute_tool_calls(
-        self, conv: list[dict[str, Any]], calls: list[dict[str, Any]]
-    ) -> None:
+    async def execute_tool_calls(self, conv: list[dict[str, Any]], calls: list[dict[str, Any]]) -> None:
         """
         Execute tool calls and append results to conversation history.
 
@@ -96,7 +94,7 @@ class ToolExecutor:
                     tool_name,
                     args,
                     f"call {i + 1}/{len(calls)}",
-                    mcp_config.get("tool_arguments_truncate", 500)
+                    mcp_config.get("tool_arguments_truncate", 500),
                 )
 
                 # Execute tool through tool manager (handles validation and routing)
@@ -141,12 +139,9 @@ class ToolExecutor:
         max_tool_hops = self.configuration.get_max_tool_hops()
         if hops >= max_tool_hops:
             warning_msg = (
-                f"⚠️ Reached maximum tool call limit ({max_tool_hops}). "
-                "Stopping to prevent infinite recursion."
+                f"⚠️ Reached maximum tool call limit ({max_tool_hops}). Stopping to prevent infinite recursion."
             )
-            logger.warning(
-                "Maximum tool hops (%d) reached, stopping recursion", max_tool_hops
-            )
+            logger.warning("Maximum tool hops (%d) reached, stopping recursion", max_tool_hops)
             return True, warning_msg
         return False, None
 

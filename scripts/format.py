@@ -2,17 +2,45 @@
 
 import subprocess
 import sys
+from pathlib import Path
+
+
+def _paths() -> list[str]:
+    return ["src/", "Servers/", "scripts/"]
+
+
+def _py_files(paths: list[str]) -> list[str]:
+    files: list[str] = []
+    for root in paths:
+        for p in Path(root).rglob("*.py"):
+            files.append(str(p))
+    return files
 
 
 def main():
-    """Run ruff format and check on the codebase."""
+    """Run ruff format and targeted checks on the codebase."""
     try:
-        print("🔧 Formatting code with ruff...")
+        targets = _paths()
+
+        subprocess.run(["uv", "run", "ruff", "format", *targets], check=True)
+
+        # Fast whitespace cleanups (preview + unsafe for whitespace-only)
         subprocess.run(
-            ["uv", "run", "ruff", "format", "src/", "Servers/", "scripts/"], check=True
+            [
+                "uv",
+                "run",
+                "ruff",
+                "check",
+                "--preview",
+                "--fix",
+                "--unsafe-fixes",
+                "--select",
+                "W291,W293,E3",
+                *targets,
+            ],
+            check=True,
         )
 
-        print("🔍 Checking code with ruff (ignoring line length)...")
         subprocess.run(
             [
                 "uv",
@@ -22,20 +50,12 @@ def main():
                 "--fix",
                 "--ignore",
                 "E501",
-                "src/",
-                "Servers/",
-                "scripts/",
+                *targets,
             ],
             check=True,
         )
 
-        print("✅ Code formatting complete!")
-        print(
-            "💡 Note: Run 'uv run ruff check src/ Servers/ scripts/' to see all issues including line length"
-        )
-
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Error running ruff: {e}")
+    except subprocess.CalledProcessError:
         sys.exit(1)
 
 

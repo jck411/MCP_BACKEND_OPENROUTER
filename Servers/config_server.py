@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -57,7 +56,7 @@ TOOL_TOGGLES = {
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-def _identity_decorator(func: F) -> F:
+def _identity_decorator[F](func: F) -> F:
     """Identity decorator that does nothing - used when tools are disabled."""
     return func
 
@@ -69,6 +68,7 @@ def tool_if(toggle_key: str) -> Callable[[F], F]:
         return cast(Callable[[F], F], mcp.tool())
     return _identity_decorator
 
+
 # Configuration tools - all tools are enabled by default
 
 
@@ -77,8 +77,12 @@ class ConfigServerConfig(BaseModel):
 
     # Server paths
     project_root: Path = Field(default_factory=lambda: Path(__file__).resolve().parent.parent)
-    runtime_config_path: Path = Field(default_factory=lambda: Path(__file__).resolve().parent.parent / "src" / "runtime_config.yaml")
-    default_config_path: Path = Field(default_factory=lambda: Path(__file__).resolve().parent.parent / "src" / "config.yaml")
+    runtime_config_path: Path = Field(
+        default_factory=lambda: Path(__file__).resolve().parent.parent / "src" / "runtime_config.yaml"
+    )
+    default_config_path: Path = Field(
+        default_factory=lambda: Path(__file__).resolve().parent.parent / "src" / "config.yaml"
+    )
 
     # Cached config data
     _config_cache: dict[str, Any] | None = None
@@ -90,7 +94,7 @@ class ConfigServerConfig(BaseModel):
             current_mtime = self.runtime_config_path.stat().st_mtime
             if self._config_cache is None or self._config_mtime != current_mtime:
                 try:
-                    with open(self.runtime_config_path, 'r', encoding='utf-8') as f:
+                    with open(self.runtime_config_path, encoding="utf-8") as f:
                         config_text = f.read()
                     self._config_cache = yaml.safe_load(config_text) or {}
                     self._config_mtime = current_mtime
@@ -104,7 +108,7 @@ class ConfigServerConfig(BaseModel):
         """Save configuration and invalidate cache."""
         try:
             self.runtime_config_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.runtime_config_path, 'w', encoding='utf-8') as f:
+            with open(self.runtime_config_path, "w", encoding="utf-8") as f:
                 yaml.safe_dump(config, f, default_flow_style=False, indent=2)
             self._config_cache = None  # Invalidate cache
             self._config_mtime = None
@@ -138,12 +142,8 @@ MAX_PENALTY = 2.0
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
-
-
-
-
-
 # Configuration tools - now using cached config manager
+
 
 @tool_if("get_current_llm_provider")
 def get_current_llm_provider() -> str:
@@ -173,10 +173,9 @@ def get_current_llm_provider() -> str:
     details_str = " | ".join(details) if details else "No additional details"
 
     return (
-        f"Current LLM Provider: {active_provider}\n"
-        f"Details: {details_str}\n"
-        f"Available providers: {', '.join(providers)}"
+        f"Current LLM Provider: {active_provider}\nDetails: {details_str}\nAvailable providers: {', '.join(providers)}"
     )
+
 
 @tool_if("get_system_prompt")
 def get_system_prompt() -> str:
@@ -186,6 +185,7 @@ def get_system_prompt() -> str:
     service = chat.get("service", {})
     system_prompt = service.get("system_prompt", "No system prompt configured")
     return f"System prompt: {system_prompt}"
+
 
 @tool_if("get_sampling_parameters")
 def get_sampling_parameters() -> str:
@@ -197,11 +197,9 @@ def get_sampling_parameters() -> str:
     top_k = provider_config.get("top_k", "not set")
 
     return (
-        f"Sampling parameters for {active_provider}:\n"
-        f"- Temperature: {temperature}\n"
-        f"- Top-p: {top_p}\n"
-        f"- Top-k: {top_k}"
+        f"Sampling parameters for {active_provider}:\n- Temperature: {temperature}\n- Top-p: {top_p}\n- Top-k: {top_k}"
     )
+
 
 @tool_if("get_length_parameters")
 def get_length_parameters() -> str:
@@ -219,6 +217,7 @@ def get_length_parameters() -> str:
         f"- Max completion tokens: {max_completion_tokens}"
     )
 
+
 @tool_if("get_penalty_parameters")
 def get_penalty_parameters() -> str:
     """Get penalty parameters for active provider"""
@@ -234,6 +233,7 @@ def get_penalty_parameters() -> str:
         f"- Frequency penalty: {frequency_penalty}\n"
         f"- Repetition penalty: {repetition_penalty}"
     )
+
 
 @tool_if("get_stopping_criteria")
 def get_stopping_criteria() -> str:
@@ -251,7 +251,9 @@ def get_stopping_criteria() -> str:
         f"- End of text: {end_of_text}"
     )
 
+
 # Configuration editing tools
+
 
 @tool_if("set_system_prompt")
 def set_system_prompt(prompt: str) -> str:
@@ -272,23 +274,18 @@ def set_system_prompt(prompt: str) -> str:
     user_prompt = prompt.strip()
     prefix = "You are a helpful assistant."
     # Avoid duplicating the prefix if the user already included it
-    if user_prompt.lower().startswith(prefix.lower()):
-        combined = user_prompt
-    else:
-        combined = f"{prefix} {user_prompt}"
+    combined = user_prompt if user_prompt.lower().startswith(prefix.lower()) else f"{prefix} {user_prompt}"
 
     config["chat"]["service"]["system_prompt"] = combined
     config_manager.save_config(config)
     return "System prompt updated successfully"
 
+
 @tool_if("set_temperature")
 def set_temperature(temperature: float) -> str:
     """Set the temperature for the active LLM provider (0.0-2.0)"""
     if not MIN_TEMPERATURE <= temperature <= MAX_TEMPERATURE:
-        return (
-            f"Error: Temperature must be between {MIN_TEMPERATURE} "
-            f"and {MAX_TEMPERATURE}"
-        )
+        return f"Error: Temperature must be between {MIN_TEMPERATURE} and {MAX_TEMPERATURE}"
 
     config = config_manager.get_config()
     active_provider, _ = config_manager.get_active_provider_config()
@@ -297,6 +294,7 @@ def set_temperature(temperature: float) -> str:
     config["llm"]["providers"][active_provider]["temperature"] = temperature
     config_manager.save_config(config)
     return f"Temperature set to {temperature} for {active_provider}"
+
 
 @tool_if("set_max_tokens")
 def set_max_tokens(max_tokens: int) -> str:
@@ -313,6 +311,7 @@ def set_max_tokens(max_tokens: int) -> str:
     config_manager.save_config(config)
     return f"Max tokens set to {max_tokens} for {active_provider}"
 
+
 @tool_if("set_top_p")
 def set_top_p(top_p: float) -> str:
     """Set the top_p sampling parameter for the active LLM provider (0.0-1.0)"""
@@ -325,6 +324,7 @@ def set_top_p(top_p: float) -> str:
     config["llm"]["providers"][active_provider]["top_p"] = top_p
     config_manager.save_config(config)
     return f"Top-p set to {top_p} for {active_provider}"
+
 
 @tool_if("switch_llm_provider")
 def switch_llm_provider(provider: str) -> str:
@@ -344,14 +344,12 @@ def switch_llm_provider(provider: str) -> str:
     config_manager.save_config(config)
     return f"Switched to LLM provider: {provider}"
 
+
 @tool_if("set_presence_penalty")
 def set_presence_penalty(penalty: float) -> str:
     """Set the presence_penalty for the active LLM provider (-2.0 to 2.0)"""
     if not MIN_PENALTY <= penalty <= MAX_PENALTY:
-        return (
-            f"Error: presence_penalty must be between {MIN_PENALTY} "
-            f"and {MAX_PENALTY}"
-        )
+        return f"Error: presence_penalty must be between {MIN_PENALTY} and {MAX_PENALTY}"
 
     config = config_manager.get_config()
     active_provider, _ = config_manager.get_active_provider_config()
@@ -360,14 +358,12 @@ def set_presence_penalty(penalty: float) -> str:
     config_manager.save_config(config)
     return f"Presence penalty set to {penalty} for {active_provider}"
 
+
 @tool_if("set_frequency_penalty")
 def set_frequency_penalty(penalty: float) -> str:
     """Set the frequency_penalty for the active LLM provider (-2.0 to 2.0)"""
     if not MIN_PENALTY <= penalty <= MAX_PENALTY:
-        return (
-            f"Error: frequency_penalty must be between {MIN_PENALTY} "
-            f"and {MAX_PENALTY}"
-        )
+        return f"Error: frequency_penalty must be between {MIN_PENALTY} and {MAX_PENALTY}"
 
     config = config_manager.get_config()
     active_provider, _ = config_manager.get_active_provider_config()
@@ -375,6 +371,7 @@ def set_frequency_penalty(penalty: float) -> str:
     config["llm"]["providers"][active_provider]["frequency_penalty"] = penalty
     config_manager.save_config(config)
     return f"Frequency penalty set to {penalty} for {active_provider}"
+
 
 @tool_if("set_repetition_penalty")
 def set_repetition_penalty(penalty: float) -> str:
@@ -389,6 +386,7 @@ def set_repetition_penalty(penalty: float) -> str:
     config_manager.save_config(config)
     return f"Repetition penalty set to {penalty} for {active_provider}"
 
+
 @tool_if("set_top_k")
 def set_top_k(top_k: int) -> str:
     """Set top_k sampling parameter for the active provider (>= 0)"""
@@ -401,6 +399,7 @@ def set_top_k(top_k: int) -> str:
     config["llm"]["providers"][active_provider]["top_k"] = top_k
     config_manager.save_config(config)
     return f"Top-k set to {top_k} for {active_provider}"
+
 
 @tool_if("set_seed")
 def set_seed(seed: int) -> str:
@@ -415,6 +414,7 @@ def set_seed(seed: int) -> str:
     config_manager.save_config(config)
     return f"Seed set to {seed} for {active_provider}"
 
+
 @tool_if("set_min_p")
 def set_min_p(min_p: float) -> str:
     """Set min_p sampling parameter for the active provider (0.0-1.0)"""
@@ -428,6 +428,7 @@ def set_min_p(min_p: float) -> str:
     config_manager.save_config(config)
     return f"min_p set to {min_p} for {active_provider}"
 
+
 @tool_if("set_top_a")
 def set_top_a(top_a: float) -> str:
     """Set top_a sampling parameter for the active provider (0.0-1.0)"""
@@ -440,6 +441,7 @@ def set_top_a(top_a: float) -> str:
     config["llm"]["providers"][active_provider]["top_a"] = top_a
     config_manager.save_config(config)
     return f"top_a set to {top_a} for {active_provider}"
+
 
 @tool_if("set_stop_sequences")
 def set_stop_sequences(sequences: str) -> str:
@@ -470,6 +472,7 @@ def set_stop_sequences(sequences: str) -> str:
     config_manager.save_config(config)
     return f"Stop sequences updated for {active_provider}: {parsed}"
 
+
 @tool_if("set_response_format")
 def set_response_format(format_type: str) -> str:
     """
@@ -483,11 +486,10 @@ def set_response_format(format_type: str) -> str:
 
     config = config_manager.get_config()
     active_provider, _ = config_manager.get_active_provider_config()
-    config["llm"]["providers"][active_provider]["response_format"] = {
-        "type": format_type
-    }
+    config["llm"]["providers"][active_provider]["response_format"] = {"type": format_type}
     config_manager.save_config(config)
     return f"response_format set to {format_type} for {active_provider}"
+
 
 @tool_if("set_structured_outputs")
 def set_structured_outputs(enabled: bool) -> str:
@@ -498,6 +500,7 @@ def set_structured_outputs(enabled: bool) -> str:
     config_manager.save_config(config)
     return f"structured_outputs set to {enabled} for {active_provider}"
 
+
 @tool_if("set_include_reasoning")
 def set_include_reasoning(include: bool) -> str:
     """Enable/disable include_reasoning for the active provider"""
@@ -506,6 +509,7 @@ def set_include_reasoning(include: bool) -> str:
     config["llm"]["providers"][active_provider]["include_reasoning"] = include
     config_manager.save_config(config)
     return f"include_reasoning set to {include} for {active_provider}"
+
 
 @tool_if("set_reasoning")
 def set_reasoning(level: str) -> str:
@@ -522,6 +526,7 @@ def set_reasoning(level: str) -> str:
     config["llm"]["providers"][active_provider]["reasoning"] = normalized
     config_manager.save_config(config)
     return f"reasoning set to {normalized} for {active_provider}"
+
 
 @tool_if("reset_runtime_config_to_defaults")
 def reset_runtime_config_to_defaults() -> str:
@@ -544,12 +549,8 @@ def reset_runtime_config_to_defaults() -> str:
         current_version: int = 0
         try:
             existing_raw = yaml.safe_load(runtime_path.read_text())
-            existing: dict[str, Any] = (
-                existing_raw if isinstance(existing_raw, dict) else {}
-            )
-            runtime_meta: dict[str, Any] = cast(
-                dict[str, Any], existing.get("_runtime_config", {})
-            )
+            existing: dict[str, Any] = existing_raw if isinstance(existing_raw, dict) else {}
+            runtime_meta: dict[str, Any] = cast(dict[str, Any], existing.get("_runtime_config", {}))
             current_version = cast(int, runtime_meta.get("version", 0))
         except Exception:
             pass
@@ -573,6 +574,7 @@ def reset_runtime_config_to_defaults() -> str:
 
 
 # Logging configuration tools
+
 
 @tool_if("get_logging_config")
 def get_logging_config() -> str:
@@ -708,14 +710,8 @@ def set_module_log_level(module: str, level: str) -> str:
 
 def _refresh_logging_feature_flags(logging_config: dict) -> None:
     """Refresh the feature flags in the logging module for immediate effect."""
-    import logging
 
     # Module-to-logger mapping (copied from main.py for consistency)
-    module_logger_map = {
-        "chat": {"loggers": ["src.chat"]},
-        "connection_pool": {"loggers": ["src.clients"]},
-        "mcp": {"loggers": ["mcp", "src.clients.mcp_client"]}
-    }
 
     modules_config = logging_config.get("modules", {})
 
@@ -725,7 +721,7 @@ def _refresh_logging_feature_flags(logging_config: dict) -> None:
             continue
 
         # Store feature flags for runtime checking
-        if not hasattr(logging, '_module_features'):
+        if not hasattr(logging, "_module_features"):
             logging._module_features = {}
         logging._module_features[module_name] = module_config.get("enable_features", {})
 
@@ -829,10 +825,10 @@ def set_advanced_logging_option(option: str, value: str) -> str:
     lower_value = value_str.lower()
 
     # Handle boolean values
-    if lower_value in ('true', 'false'):
-        parsed_value = lower_value == 'true'
+    if lower_value in ("true", "false"):
+        parsed_value = lower_value == "true"
     # Handle integer values
-    elif value_str.isdigit() or (value_str.startswith('-') and value_str[1:].isdigit()):
+    elif value_str.isdigit() or (value_str.startswith("-") and value_str[1:].isdigit()):
         try:
             parsed_value = int(value_str)
         except ValueError:
