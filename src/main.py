@@ -15,6 +15,7 @@ from typing import Any
 import src.chat.chat_orchestrator
 from src.chat import ChatOrchestrator
 from src.clients import LLMClient, MCPClient
+from src.clients.model_capabilities import ModelCapabilities
 from src.config import Configuration
 from src.history import create_repository
 from src.websocket_server import run_websocket_server
@@ -190,7 +191,10 @@ async def main() -> None:
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, signal_handler)
 
-    async with LLMClient(config) as llm_client:
+    # Create model capabilities manager for robust model parameter filtering
+    capabilities = ModelCapabilities()
+
+    async with LLMClient(config, capabilities) as llm_client:
         try:
             # Start configuration file watching for event-driven updates
             await config.start_watching()

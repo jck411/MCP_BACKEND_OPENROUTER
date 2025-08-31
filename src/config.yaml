@@ -115,7 +115,6 @@ llm:
       temperature: 0.7
       max_tokens: 4096
       top_p: 1.0
-      transforms: ["middle-out"]
 
     openrouter_reasoning:
       base_url: "https://openrouter.ai/api/v1"
@@ -195,11 +194,11 @@ logging:
 
     # MCP connection logging
     mcp:
-      level: "WARNING"                  # Specific level for MCP
+      level: "INFO"                  # Specific level for MCP
       enable_features:
-        connection_attempts: true    # Log connection attempts
+        connection_attempts: false    # Log connection attempts
         health_checks: true          # Log health checks
-        tool_calls: false            # Log tool calls
+        tool_calls: true            # Log tool calls
         tool_arguments: true        # Log arguments sent to MCP server
         tool_results: true          # Log results received from MCP server
       truncate_lengths:

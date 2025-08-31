@@ -2,8 +2,8 @@ _runtime_config:
   created_from_defaults: true
   default_config_path: config.yaml
   is_runtime_config: true
-  last_modified: 1756603311.3276887
-  version: 12
+  last_modified: 1756610711.701065
+  version: 17
 chat:
   service:
     max_tool_hops: 8
@@ -92,11 +92,9 @@ llm:
     openrouter:
       base_url: https://openrouter.ai/api/v1
       max_tokens: 4096
-      model: openai/gpt-4o-mini
-      temperature: 0.7
+      model: google/gemini-2.5-flash-image-preview
+      temperature: 0.9
       top_p: 1.0
-      transforms:
-      - middle-out
     openrouter_reasoning:
       base_url: https://openrouter.ai/api/v1
       include_thinking: true
@@ -136,12 +134,12 @@ logging:
       pool_stats_interval_seconds: 60
     mcp:
       enable_features:
-        connection_attempts: true
+        connection_attempts: false
         health_checks: true
         tool_arguments: true
-        tool_calls: false
+        tool_calls: true
         tool_results: true
-      level: WARNING
+      level: INFO
       truncate_lengths:
         tool_arguments_truncate: 500
         tool_results_truncate: 200

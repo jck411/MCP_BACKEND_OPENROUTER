@@ -328,7 +328,7 @@ def set_top_p(top_p: float) -> str:
 
 @tool_if("switch_llm_provider")
 def switch_llm_provider(provider: str) -> str:
-    """Switch to a different LLM provider (groq, openai, openrouter, etc.)"""
+    """Switch to a different LLM provider configuration (groq, openai, openrouter, etc.). Use this to switch between different provider setups, not to change models within a provider."""
     config = config_manager.get_config()
     providers: dict[str, Any] = cast(
         dict[str, Any],
@@ -343,6 +343,20 @@ def switch_llm_provider(provider: str) -> str:
     config["llm"]["active"] = provider
     config_manager.save_config(config)
     return f"Switched to LLM provider: {provider}"
+
+
+@tool_if("set_model")
+def set_model(model: str) -> str:
+    """Change the model within the currently active LLM provider. Use this to switch to different models (like nousresearch/hermes-4-405b, openai/gpt-4o, etc.) without changing the provider."""
+    if not model.strip():
+        return "Error: Model name cannot be empty"
+
+    config = config_manager.get_config()
+    active_provider, _ = config_manager.get_active_provider_config()
+
+    config["llm"]["providers"][active_provider]["model"] = model.strip()
+    config_manager.save_config(config)
+    return f"Model set to '{model.strip()}' for {active_provider}"
 
 
 @tool_if("set_presence_penalty")

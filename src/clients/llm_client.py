@@ -24,6 +24,7 @@ from src.chat.models import (
     LLMResponseData,
     ToolDefinition,
 )
+from src.clients.model_capabilities import ModelCapabilities
 from src.config import Configuration
 
 
@@ -35,8 +36,9 @@ class LLMClient:
     configuration actually changes, eliminating unnecessary polling on every API call.
     """
 
-    def __init__(self, configuration: Configuration) -> None:
+    def __init__(self, configuration: Configuration, capabilities: ModelCapabilities) -> None:
         self.configuration: Configuration = configuration
+        self.capabilities: ModelCapabilities = capabilities
         self._current_config: dict[str, Any] = {}
         self._current_api_key: str = ""
         self._current_provider: str = ""
@@ -45,6 +47,7 @@ class LLMClient:
         self._pending_config_change: dict[str, Any] | None = None  # Queue changes
         self._config_lock: asyncio.Lock = asyncio.Lock()  # Protect config changes
         self._background_tasks: set[asyncio.Task[Any]] = set()  # Track background tasks
+        self._supported_parameters: set[str] = set()  # Track supported parameters for current model
 
         # Cache connection pool configuration for performance
         self._connection_pool_config = self.configuration.get_connection_pool_config()
@@ -58,6 +61,22 @@ class LLMClient:
 
         # Set up connection logging if enabled
         self._setup_connection_logging()
+
+    async def _refresh_capabilities(self) -> None:
+        """Fetch supported parameters for the current model."""
+        model_name = self.config.get("model")
+        if not model_name:
+            self._supported_parameters = set()
+            return
+        try:
+            self._supported_parameters = await self.capabilities.supported_parameters(model_name)
+            logging.info(
+                f"🧠 Refreshed capabilities for model '{model_name}': "
+                f"{len(self._supported_parameters)} supported parameters"
+            )
+        except Exception as e:
+            logging.error(f"Failed to refresh capabilities for model '{model_name}': {e}")
+            self._supported_parameters = set()  # Fail safe - drop all unsupported params
 
     def _on_config_change(self, new_config: dict[str, Any]) -> None:
         """Event handler for configuration changes."""
@@ -119,7 +138,14 @@ class LLMClient:
                     else:
                         # These are just API parameter changes - update immediately
                         logging.info("⚡ Applying non-breaking config changes immediately")
+                        old_model = self._current_config.get("model")
                         self._current_config = provider_config
+                        new_model = provider_config.get("model")
+
+                        # Refresh capabilities if model changed
+                        if old_model != new_model:
+                            await self._refresh_capabilities()
+
                         logging.info("✅ Configuration updated without client replacement")
 
             except Exception as e:
@@ -207,6 +233,9 @@ class LLMClient:
             },
         )
         logging.info("✅ New HTTP client created successfully")
+
+        # Refresh capabilities for the new configuration
+        await self._refresh_capabilities()
 
     async def _check_pending_config_change(self) -> None:
         """Check and apply pending configuration changes when no streams are active."""
@@ -370,16 +399,20 @@ class LLMClient:
 
         logging.debug(f"🔌 {details}")
 
-    def _build_payload(
+    async def _build_payload(
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         stream: bool = False,
     ) -> dict[str, Any]:
         """
-        Build API payload by passing through all config parameters.
-        This makes the client ready for any new parameters without code changes.
+        Build API payload with intelligent parameter filtering based on model capabilities.
+        Only includes parameters that the current model actually supports.
         """
+        # Ensure capabilities are loaded before building payload
+        if not self._supported_parameters and self.config.get("model"):
+            await self._refresh_capabilities()
+
         # Start with required parameters
         payload: dict[str, Any] = {
             "model": self.config["model"],
@@ -390,7 +423,7 @@ class LLMClient:
         if stream:
             payload["stream"] = True
 
-        # Pass through ALL other parameters from config (except infrastructure ones)
+        # Infrastructure keys that should never be passed to the API
         excluded_keys = {
             "base_url",
             "model",
@@ -401,13 +434,37 @@ class LLMClient:
             "stop_token_ids",
             "end_token_id",
         }
+
+        # Pass through config parameters, filtering by model capabilities
+        allowed_params = self._supported_parameters
+        required_params = {"model", "messages", "stream"}  # Always preserve these
+
         for key, value in self.config.items():
             if key not in excluded_keys and value is not None:
-                payload[key] = value
+                # Always include required parameters
+                if key in required_params or key in allowed_params:
+                    payload[key] = value
+                # Log dropped parameters for debugging
+                elif allowed_params:  # Only log if we have capability info
+                    logging.warning(
+                        f"🚫 Dropping unsupported parameter '{key}' for model {self.config.get('model', 'unknown')}"
+                    )
 
-        # Add tools if provided
-        if tools:
+        # Handle tool support with capability checking
+        if tools and "tools" in allowed_params:
             payload["tools"] = tools
+            # Forward tool_choice if present in config and allowed
+            if (
+                "tool_choice" in self.config
+                and "tool_choice" in allowed_params
+                and self.config["tool_choice"] is not None
+            ):
+                payload["tool_choice"] = self.config["tool_choice"]
+        elif tools:
+            if allowed_params:  # Only log if we have capability info
+                logging.warning(
+                    f"🔧 Model {self.config.get('model', 'unknown')} does not support tools; skipping tool definitions"
+                )
 
         # Remove any None values that might have slipped in
         return {k: v for k, v in payload.items() if v is not None}
@@ -473,7 +530,7 @@ class LLMClient:
             dict_messages = [msg.model_dump(exclude_none=True) for msg in messages]
             dict_tools = [tool.model_dump(exclude_none=True) for tool in tools] if tools else None
 
-            payload = self._build_payload(dict_messages, dict_tools, stream=False)
+            payload = await self._build_payload(dict_messages, dict_tools, stream=False)
 
             start_time = time.monotonic()
             response = await self.client.post("/chat/completions", json=payload)
@@ -560,7 +617,7 @@ class LLMClient:
             dict_messages = [msg.model_dump(exclude_none=True) for msg in messages]
             dict_tools = [tool.model_dump(exclude_none=True) for tool in tools] if tools else None
 
-            payload = self._build_payload(dict_messages, dict_tools, stream=True)
+            payload = await self._build_payload(dict_messages, dict_tools, stream=True)
 
             async with self.client.stream(
                 "POST",
